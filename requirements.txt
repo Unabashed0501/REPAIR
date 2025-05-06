@@ -1,0 +1,8 @@
+google-adk
+litellm
+
+# SWE-Bench-Lite
+pandas
+pyarrow
+fastparquet
+huggingface_hub
