@@ -43,6 +43,13 @@ adk web
 
 You could access the web via [localhost:8080](http://0.0.0.0:8000/dev-ui?app=BugFixerAgent) by default, and please select **BugFixingAgent** to interact with the agent.
 
+## 🚀 Project Demo
+
+Here is a short demo of how the project works:
+
+[![Demo](Demo/Demo_image_agdk_swe_fixer.png)](Demo/Demo_video_agdk_swe_fixer.mp4)
+
+
 ## Reference
 The `agentless` folder is referred to 
 ```bibtex
