@@ -2066,3 +2066,5 @@ astropy/io/ascii/rst.py
 2025-05-13 01:11:52,978 - INFO - Skipping existing instance_id: astropy__astropy-14182
 2025-05-13 01:15:30,138 - INFO - Processing bug astropy__astropy-14182
 2025-05-13 01:15:30,138 - INFO - Skipping existing instance_id: astropy__astropy-14182
+2025-05-15 15:50:37,177 - INFO - Processing bug astropy__astropy-14182
+2025-05-15 15:50:37,179 - INFO - Skipping existing instance_id: astropy__astropy-14182

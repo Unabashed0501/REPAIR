@@ -1383,3 +1383,5 @@ astropy/modeling/tests/test_separable.py
 ```
 2025-05-15 02:52:16,694 - INFO - Processing bug astropy__astropy-12907
 2025-05-15 02:52:16,695 - INFO - Skipping existing instance_id: astropy__astropy-12907
+2025-05-15 15:50:37,179 - INFO - Processing bug astropy__astropy-12907
+2025-05-15 15:50:37,179 - INFO - Skipping existing instance_id: astropy__astropy-12907

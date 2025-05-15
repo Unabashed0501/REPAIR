@@ -1079,3 +1079,5 @@ astropy/wcs/wcslint.py
 2025-05-13 01:11:52,979 - INFO - Skipping existing instance_id: astropy__astropy-7746
 2025-05-13 01:15:30,140 - INFO - Processing bug astropy__astropy-7746
 2025-05-13 01:15:30,143 - INFO - Skipping existing instance_id: astropy__astropy-7746
+2025-05-15 15:50:37,180 - INFO - Processing bug astropy__astropy-7746
+2025-05-15 15:50:37,182 - INFO - Skipping existing instance_id: astropy__astropy-7746

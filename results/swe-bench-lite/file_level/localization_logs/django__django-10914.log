@@ -3118,3 +3118,5 @@ django/core/files/temp.py
 django/conf/global_settings.py
 docs/conf.py
 ```
+2025-05-15 15:50:37,181 - INFO - Processing bug django__django-10914
+2025-05-15 15:50:37,182 - INFO - Skipping existing instance_id: django__django-10914

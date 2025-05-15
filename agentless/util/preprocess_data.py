@@ -658,7 +658,6 @@ def get_repo_structure(instance_id: str, repo_name, base_commit, playground):
         d = get_project_structure_from_scratch(
             repo_name, base_commit, instance_id, playground
         )
-        # print("repo structure", d)
         repo_structure = d["structure"]
 
     return repo_structure

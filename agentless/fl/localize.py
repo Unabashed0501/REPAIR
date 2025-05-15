@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 import sys
 import os
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from agentless.fl.FL import LLMFL
@@ -125,7 +126,7 @@ def localize_instance(
     structure = get_repo_structure(
         instance_id, bug["repo"], bug["base_commit"], "playground"
     )
-    
+
     files, _, _ = get_full_file_paths_and_classes_and_functions(structure)
     print(f"Number of files in the repo: {len(files)}")
 
@@ -440,24 +441,60 @@ def localize_irrelevant(args):
                 future.result()
 
 
+def load_repo_structure_instance(instance_id, repo, base_commit, write_lock=None):
+    """Load the repo structure for a given instance ID."""
+    structure = get_repo_structure(instance_id, repo, base_commit, "playground")
+
+
+def load_repo_structure(args):
+    """Load the repo structure for a given instance ID."""
+    swe_bench_data = load_dataset(args.dataset, split="test")
+
+    # print(f"Number of instances in dataset: {len(swe_bench_data)}")
+    swe_bench_data = swe_bench_data.select(range(0, 7))
+    print(f"Number of instances in dataset after selection: {len(swe_bench_data)}")
+
+    if args.num_threads == 1:
+        for bug in tqdm(swe_bench_data, colour="MAGENTA", desc="Processing bugs"):
+            load_repo_structure_instance(
+                bug["instance_id"], bug["repo"], bug["base_commit"]
+            )
+            print(
+                f"Loaded repo structure for {bug['instance_id']} in playground/{bug['instance_id']}"
+            )
+    else:
+        write_lock = Lock()
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=args.num_threads
+        ) as executor:
+            futures = [
+                executor.submit(
+                    load_repo_structure_instance,
+                    bug["instance_id"],
+                    bug["repo"],
+                    bug["base_commit"],
+                    write_lock,
+                )
+                for bug in swe_bench_data
+            ]
+            for future in tqdm(
+                concurrent.futures.as_completed(futures),
+                total=len(swe_bench_data),
+                colour="MAGENTA",
+            ):
+                future.result()
+
+    print(f"Loaded repo structure for {len(swe_bench_data)} instances.")
+
+
 def localize(args):
     swe_bench_data = load_dataset(args.dataset, split="test")
     start_file_locs = load_jsonl(args.start_file) if args.start_file else None
     existing_instance_ids = (
         load_existing_instance_ids(args.output_file) if args.skip_existing else set()
     )
-    
-    # TODO: select data based on intance_id
-    # if args.target_id is not None:
-    #     swe_bench_data = [
-    #         x for x in swe_bench_data if x["instance_id"] == args.target_id
-    #     ]
-    # else:
-    #     swe_bench_data = [
-    #         x for x in swe_bench_data if x["instance_id"] not in existing_instance_ids
-    #     ]
+
     print(f"Number of instances in dataset: {len(swe_bench_data)}")
-    # print(swe_bench_data[:10])
     swe_bench_data = swe_bench_data.select(range(0, 7))
     print(f"Number of instances in dataset after selection: {len(swe_bench_data)}")
     # print(swe_bench_data)
@@ -551,7 +588,7 @@ def check_valid_args(args):
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--output_folder", type=str, required=True)
+    parser.add_argument("--output_folder", type=str, required=False)
     parser.add_argument("--output_file", type=str, default="loc_outputs.jsonl")
     parser.add_argument(
         "--start_file",
@@ -579,6 +616,11 @@ def main():
     parser.add_argument("--keep_old_order", action="store_true")
     parser.add_argument("--irrelevant", action="store_true")
     parser.add_argument("--direct_edit_loc", action="store_true")
+    parser.add_argument(
+        "--load_repo",
+        action="store_true",
+        help="Load the repo structure for a given instance ID.",
+    )
     parser.add_argument(
         "--num_threads",
         type=int,
@@ -620,6 +662,12 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.load_repo:
+        load_repo_structure(args)
+        return
+
+    assert args.output_folder is not None, "Output folder is required"
     args.output_file = os.path.join(args.output_folder, args.output_file)
     check_valid_args(args)
 

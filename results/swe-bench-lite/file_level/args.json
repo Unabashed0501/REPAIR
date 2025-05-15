@@ -23,7 +23,7 @@
     "irrelevant": false,
     "direct_edit_loc": false,
     "num_threads": 10,
-    "target_id": "astropy__astropy-12907",
+    "target_id": null,
     "skip_existing": true,
     "mock": false,
     "model": "gpt-4o-2024-05-13",
