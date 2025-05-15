@@ -47,7 +47,7 @@ You could access the web via [localhost:8080](http://0.0.0.0:8000/dev-ui?app=Bug
 
 Here is a short demo of how the project works:
 
-[![Demo](Demo/Demo_image_agdk_swe_fixer.png)](Demo/Demo_video_agdk_swe_fixer.mp4)
+https://github.com/user-attachments/assets/2e66a0cc-a6cc-4e54-875f-010db96a50fd
 
 
 ## Reference
@@ -58,6 +58,7 @@ The `agentless` folder is referred to
   title     = {Agentless: Demystifying LLM-based Software Engineering Agents},
   year      = {2024},
   journal   = {arXiv preprint},
+
 }
 ```
 
