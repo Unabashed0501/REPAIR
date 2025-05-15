@@ -1,4 +1,7 @@
 agdk-env/
+repair-env/
+
 **/__pycache__/
+.DS_Store
 
 SWE-Bench-Lite/explaination.txt
