@@ -2,7 +2,7 @@
 
 REPAIR is a **multi-agent** system designed to automatically identify and fix single-file, single-line bugs using large language models.
 
-Built with the Google Agentic Development Kit (ADK) and powered by Gemini 2.0 Flash via the free Google AI Studio API, this project uses the **SWE-bench Lite** dataset as a benchmark for realistic software engineering bug-fixing tasks.
+Built with the Google Agentic Development Kit (ADK) and powered by Gemini 2.0 Flash via Google AI Studio API Key, this project uses the **SWE-bench Lite** dataset as a benchmark for realistic software engineering bug-fixing tasks.
 
 The system is composed of the following agents:
 
