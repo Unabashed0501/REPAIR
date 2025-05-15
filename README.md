@@ -2,7 +2,7 @@
 A bug-fixing agent using the Google Agentic Development Kit (AGDK) and the SWE-bench Lite dataset, focused on single-file, single-line bugs. This example builds a single-agent system that leverages the Google AI Studio free API Key for calling Gemini.
 
 ## Environmental Setup
-Create a .env file to include:
+Create a `.env` file to include:
 ```
 HF_TOKEN=<YOUR_HUGGINGFACE_TOKEN>
 GOOGLE_API_KEY=<YOUR_GOOGLE_API_KEY>
@@ -25,7 +25,7 @@ python SWE-Bench-Lite/get-dataset.py
 ```
 
 ## Run agdk-swe-fixer pipeline:
-1. Load the repo from **SWE-Bench-Lite** via Agentless file localization (it might take about 5~10 minutes depending on the wifi status):
+1. Load the repo from **SWE-Bench-Lite** via `Agentless` file localization (it might take about 5~10 minutes depending on the wifi status):
 ```
 python agentless/fl/localize.py --load_repo --num_threads 10 --skip_existing 
 ```
