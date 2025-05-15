@@ -1,0 +1,7 @@
+{"instance_id": "astropy__astropy-12907", "found_files": ["astropy/modeling/separable.py", "astropy/modeling/core.py", "astropy/modeling/models.py"], "additional_artifact_loc_file": {}, "file_traj": {}}
+{"instance_id": "astropy__astropy-14365", "found_files": ["astropy/io/ascii/qdp.py", "astropy/io/ascii/core.py", "astropy/io/ascii/docs.py", "astropy/io/ascii/ui.py"], "additional_artifact_loc_file": {}, "file_traj": {}}
+{"instance_id": "astropy__astropy-6938", "found_files": ["astropy/io/fits/fitsrec.py", "astropy/io/fits/column.py", "astropy/io/fits/util.py"], "additional_artifact_loc_file": {}, "file_traj": {}}
+{"instance_id": "astropy__astropy-14995", "found_files": ["astropy/nddata/nddata.py", "astropy/nddata/mixins/ndarithmetic.py", "astropy/nddata/utils.py", "astropy/utils/masked/core.py"], "additional_artifact_loc_file": {}, "file_traj": {}}
+{"instance_id": "astropy__astropy-14182", "found_files": ["astropy/io/ascii/rst.py", "astropy/io/ascii/core.py", "astropy/io/ascii/ui.py"], "additional_artifact_loc_file": {}, "file_traj": {}}
+{"instance_id": "astropy__astropy-7746", "found_files": ["astropy/wcs/wcs.py", "astropy/wcs/utils.py", "astropy/wcs/docstrings.py"], "additional_artifact_loc_file": {}, "file_traj": {}}
+{"instance_id": "django__django-10914", "found_files": ["django/core/files/storage.py", "django/core/files/uploadedfile.py", "django/core/files/temp.py", "django/setup.py", "django/__init__.py", "django/__main__.py"], "additional_artifact_loc_file": {}, "file_traj": {}}

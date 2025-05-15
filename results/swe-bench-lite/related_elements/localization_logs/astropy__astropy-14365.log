@@ -1,0 +1,1418 @@
+2025-05-15 03:49:25,835 - INFO - Processing bug astropy__astropy-14365
+2025-05-15 03:50:02,176 - INFO - ================ localize astropy__astropy-14365 ================
+2025-05-15 03:50:02,458 - INFO - prompting with message:
+2025-05-15 03:50:02,458 - INFO - 
+
+Please look through the following GitHub Problem Description and the Skeleton of Relevant Files.
+Identify all locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related global variables, functions, and classes.
+For each location you provide, either give the name of the class, the name of a method in a class, the name of a function, or the name of a global variable.
+
+### GitHub Problem Description ###
+ascii.qdp Table format assumes QDP commands are upper case
+### Description
+
+ascii.qdp assumes that commands in a QDP file are upper case, for example, for errors they must be "READ SERR 1 2" whereas QDP itself is not case sensitive and case use "read serr 1 2". 
+
+As many QDP files are created by hand, the expectation that all commands be all-caps should be removed.
+
+### Expected behavior
+
+The following qdp file should read into a `Table` with errors, rather than crashing.
+```
+read serr 1 2 
+1 0.5 1 0.5
+```
+
+### How to Reproduce
+
+Create a QDP file:
+```
+> cat > test.qdp
+read serr 1 2 
+1 0.5 1 0.5
+<EOF>
+
+ > python
+Python 3.10.9 (main, Dec  7 2022, 02:03:23) [Clang 13.0.0 (clang-1300.0.29.30)] on darwin
+Type "help", "copyright", "credits" or "license" for more information.
+>>> from astropy.table import Table
+>>> Table.read('test.qdp',format='ascii.qdp')
+WARNING: table_id not specified. Reading the first available table [astropy.io.ascii.qdp]
+Traceback (most recent call last):
+...
+    raise ValueError(f'Unrecognized QDP line: {line}')
+ValueError: Unrecognized QDP line: read serr 1 2
+```
+
+Running "qdp test.qdp" works just fine.
+
+
+### Versions
+
+Python 3.10.9 (main, Dec  7 2022, 02:03:23) [Clang 13.0.0 (clang-1300.0.29.30)]
+astropy 5.1
+Numpy 1.24.1
+pyerfa 2.0.0.1
+Scipy 1.10.0
+Matplotlib 3.6.3
+
+
+
+### Skeleton of Relevant Files ###
+
+### File: astropy/io/ascii/qdp.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+
+
+def _line_type(line, delimiter=None):
+...
+
+
+def _get_type_from_list_of_lines(lines, delimiter=None):
+...
+
+
+def _get_lines_from_file(qdp_file):
+...
+
+
+def _interpret_err_lines(err_specs, ncols, names=None):
+...
+
+
+def _get_tables_from_qdp_file(qdp_file, input_colnames=None, delimiter=None):
+...
+
+
+def _understand_err_col(colnames):
+...
+
+
+def _read_table_qdp(qdp_file, names=None, table_id=None, delimiter=None):
+...
+
+
+def _write_table_qdp(table, filename=None, err_specs=None):
+...
+
+
+class QDPSplitter(core.DefaultSplitter):
+
+    delimiter = " "
+
+
+class QDPHeader(basic.CommentedHeaderHeader):
+
+    splitter_class = QDPSplitter
+    comment = "!"
+    write_comment = "!"
+
+
+class QDPData(basic.BasicData):
+
+    splitter_class = QDPSplitter
+    fill_values = [(core.masked, "NO")]
+    comment = "!"
+    write_comment = None
+
+
+class QDP(basic.Basic):
+
+    _format_name = "qdp"
+    _io_registry_can_write = True
+    _io_registry_suffix = ".qdp"
+    _description = "Quick and Dandy Plotter"
+
+    header_class = QDPHeader
+    data_class = QDPData
+
+    def __init__(self, table_id=None, names=None, err_specs=None, sep=None):
+...
+
+    def read(self, table):
+...
+
+    def write(self, table):
+...
+
+```
+
+### File: astropy/io/ascii/core.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+
+# Global dictionary mapping format arg to the corresponding Reader class
+FORMAT_CLASSES = {}
+
+# Similar dictionary for fast readers
+FAST_CLASSES = {}
+
+
+def _check_multidim_table(table, max_ndim):
+...
+
+
+class CsvWriter:
+
+    # Random 16-character string that gets injected instead of any
+    # empty fields and is then replaced post-write with doubled-quotechar.
+    # Created with:
+    # ''.join(random.choice(string.printable[:90]) for _ in range(16))
+    replace_sentinel = "2b=48Av%0-V3p>bX"
+
+    def __init__(self, csvfile=None, **kwargs):
+...
+
+    def writerow(self, values):
+...
+
+    def writerows(self, values_list):
+...
+
+    def _writerow(self, writerow_func, values, has_empty):
+...
+
+
+class MaskedConstant(numpy.ma.core.MaskedConstant):
+
+    def __hash__(self):
+...
+
+    def __copy__(self):
+...
+
+    def __deepcopy__(self, memo):
+...
+
+
+masked = MaskedConstant()
+
+
+class InconsistentTableError(ValueError):
+    pass
+
+
+class OptionalTableImportError(ImportError):
+    pass
+
+
+class ParameterError(NotImplementedError):
+    pass
+
+
+class FastOptionsError(NotImplementedError):
+    pass
+
+
+class NoType:
+    pass
+
+
+class StrType(NoType):
+    pass
+
+
+class NumType(NoType):
+    pass
+
+
+class FloatType(NumType):
+    pass
+
+
+class BoolType(NoType):
+    pass
+
+
+class IntType(NumType):
+    pass
+
+
+class AllType(StrType, FloatType, IntType):
+    pass
+
+
+class Column:
+
+    def __init__(self, name):
+...
+
+
+class BaseInputter:
+
+    encoding = None
+
+    def get_lines(self, table, newline=None):
+...
+
+    def process_lines(self, lines):
+...
+
+
+class BaseSplitter:
+
+    delimiter = None
+
+    def process_line(self, line):
+...
+
+    def process_val(self, val):
+...
+
+    def __call__(self, lines):
+...
+
+    def join(self, vals):
+...
+
+
+class DefaultSplitter(BaseSplitter):
+
+    delimiter = " "
+    quotechar = '"'
+    doublequote = True
+    escapechar = None
+    quoting = csv.QUOTE_MINIMAL
+    skipinitialspace = True
+    csv_writer = None
+    csv_writer_out = StringIO()
+
+    def process_line(self, line):
+...
+
+    def process_val(self, val):
+...
+
+    def __call__(self, lines):
+...
+
+    def join(self, vals):
+...
+
+
+def _replace_tab_with_space(line, escapechar, quotechar):
+...
+
+
+def _get_line_index(line_or_func, lines):
+...
+
+
+class BaseHeader:
+
+    auto_format = "col{}"
+    start_line = None
+    comment = None
+    splitter_class = DefaultSplitter
+    names = None
+    write_comment = False
+    write_spacer_lines = ["ASCII_TABLE_WRITE_SPACER_LINE"]
+
+    def __init__(self):
+...
+
+    def _set_cols_from_names(self):
+...
+
+    def update_meta(self, lines, meta):
+...
+
+    def get_cols(self, lines):
+...
+
+    def process_lines(self, lines):
+...
+
+    def write_comments(self, lines, meta):
+...
+
+    def write(self, lines):
+...
+
+    @property
+    def colnames(self):
+...
+
+    def remove_columns(self, names):
+...
+
+    def rename_column(self, name, new_name):
+...
+
+    def get_type_map_key(self, col):
+...
+
+    def get_col_type(self, col):
+...
+
+    def check_column_names(self, names, strict_names, guessing):
+...
+
+
+class BaseData:
+
+    start_line = None
+    end_line = None
+    comment = None
+    splitter_class = DefaultSplitter
+    write_spacer_lines = ["ASCII_TABLE_WRITE_SPACER_LINE"]
+    fill_include_names = None
+    fill_exclude_names = None
+    fill_values = [(masked, "")]
+    formats = {}
+
+    def __init__(self):
+...
+
+    def process_lines(self, lines):
+...
+
+    def get_data_lines(self, lines):
+...
+
+    def get_str_vals(self):
+...
+
+    def masks(self, cols):
+...
+
+    def _set_fill_values(self, cols):
+...
+
+    def _set_masks(self, cols):
+...
+
+    def _replace_vals(self, cols):
+...
+
+    def str_vals(self):
+...
+
+    def write(self, lines):
+...
+
+    def _set_col_formats(self):
+...
+
+
+def convert_numpy(numpy_type):
+...
+
+
+class BaseOutputter:
+
+    # User-defined converters which gets set in ascii.ui if a `converter` kwarg
+    # is supplied.
+    converters = {}
+
+    # Derived classes must define default_converters and __call__
+
+    @staticmethod
+    def _validate_and_copy(col, converters):
+...
+
+    def _convert_vals(self, cols):
+...
+
+
+def _deduplicate_names(names):
+...
+
+
+class TableOutputter(BaseOutputter):
+
+    default_converters = [convert_numpy(int), convert_numpy(float), convert_numpy(str)]
+
+    def __call__(self, cols, meta):
+...
+
+
+class MetaBaseReader(type):
+    def __init__(cls, name, bases, dct):
+...
+
+
+def _is_number(x):
+...
+
+
+def _apply_include_exclude_names(table, names, include_names, exclude_names):
+...
+
+
+class BaseReader(metaclass=MetaBaseReader):
+
+    names = None
+    include_names = None
+    exclude_names = None
+    strict_names = False
+    guessing = False
+    encoding = None
+
+    header_class = BaseHeader
+    data_class = BaseData
+    inputter_class = BaseInputter
+    outputter_class = TableOutputter
+
+    # Max column dimension that writer supports for this format. Exceptions
+    # include ECSV (no limit) and HTML (max_ndim=2).
+    max_ndim = 1
+
+    def __init__(self):
+...
+
+    def _check_multidim_table(self, table):
+...
+
+    def read(self, table):
+...
+
+    def inconsistent_handler(self, str_vals, ncols):
+...
+
+    @property
+    def comment_lines(self):
+...
+
+    def update_table_data(self, table):
+...
+
+    def write_header(self, lines, meta):
+...
+
+    def write(self, table):
+...
+
+
+class ContinuationLinesInputter(BaseInputter):
+
+    continuation_char = "\\"
+    replace_char = " "
+    # If no_continue is not None then lines matching this regex are not subject
+    # to line continuation.  The initial use case here is Daophot.  In this
+    # case the continuation character is just replaced with replace_char.
+    no_continue = None
+
+    def process_lines(self, lines):
+...
+
+
+class WhitespaceSplitter(DefaultSplitter):
+    def process_line(self, line):
+...
+
+
+extra_reader_pars = (
+    "Reader",
+    "Inputter",
+    "Outputter",
+    "delimiter",
+    "comment",
+    "quotechar",
+    "header_start",
+    "data_start",
+    "data_end",
+    "converters",
+    "encoding",
+    "data_Splitter",
+    "header_Splitter",
+    "names",
+    "include_names",
+    "exclude_names",
+    "strict_names",
+    "fill_values",
+    "fill_include_names",
+    "fill_exclude_names",
+)
+
+
+def _get_reader(Reader, Inputter=None, Outputter=None, **kwargs):
+...
+
+
+extra_writer_pars = (
+    "delimiter",
+    "comment",
+    "quotechar",
+    "formats",
+    "strip_whitespace",
+    "names",
+    "include_names",
+    "exclude_names",
+    "fill_values",
+    "fill_include_names",
+    "fill_exclude_names",
+)
+
+
+def _get_writer(Writer, fast_writer, **kwargs):
+...
+
+```
+
+### File: astropy/io/ascii/docs.py ###
+```python
+READ_DOCSTRING = """
+    Read the input ``table`` and return the table.  Most of
+    the default behavior for various parameters is determined by the Reader
+    class.
+
+    See also:
+
+    - https://docs.astropy.org/en/stable/io/ascii/
+    - https://docs.astropy.org/en/stable/io/ascii/read.html
+
+...
+
+    encoding : str
+        Allow to specify encoding to read the file (default= ``None``).
+
+    Returns
+    -------
+    dat : `~astropy.table.Table` or <generator>
+        Output table
+
+    """
+
+# Specify allowed types for core write() keyword arguments.  Each entry
+# corresponds to the name of an argument and either a type (e.g. int) or a
+# list of types.  These get used in io.ascii.ui._validate_read_write_kwargs().
+# -  The commented-out kwargs are too flexible for a useful check
+# -  'list-list' is a special case for an iterable that is not a string.
+READ_KWARG_TYPES = {
+    # 'table'
+    "guess": bool,
+    # 'format'
+    # 'Reader'
+    # 'Inputter'
+    # 'Outputter'
+    "delimiter": str,
+    "comment": str,
+    "quotechar": str,
+    "header_start": int,
+    "data_start": (int, str),  # CDS allows 'guess'
+    "data_end": int,
+    "converters": dict,
+    # 'data_Splitter'
+    # 'header_Splitter'
+    "names": "list-like",
+    "include_names": "list-like",
+    "exclude_names": "list-like",
+    "fill_values": "list-like",
+    "fill_include_names": "list-like",
+    "fill_exclude_names": "list-like",
+    "fast_reader": (bool, str, dict),
+    "encoding": str,
+}
+
+
+WRITE_DOCSTRING = """
+    Write the input ``table`` to ``filename``.  Most of the default behavior
+    for various parameters is determined by the Writer class.
+
+    See also:
+
+    - https://docs.astropy.org/en/stable/io/ascii/
+    - https://docs.astropy.org/en/stable/io/ascii/write.html
+
+    Parameters
+...
+    fast_writer : bool, str
+        Whether to use the fast Cython writer.  Can be `True` (use fast writer
+        if available), `False` (do not use fast writer), or ``'force'`` (use
+        fast writer and fail if not available, mostly for testing).
+    overwrite : bool
+        If ``overwrite=False`` (default) and the file exists, then an OSError
+        is raised. This parameter is ignored when the ``output`` arg is not a
+        string (e.g., a file object).
+
+    """
+# Specify allowed types for core write() keyword arguments.  Each entry
+# corresponds to the name of an argument and either a type (e.g. int) or a
+# list of types.  These get used in io.ascii.ui._validate_read_write_kwargs().
+# -  The commented-out kwargs are too flexible for a useful check
+# -  'list-list' is a special case for an iterable that is not a string.
+WRITE_KWARG_TYPES = {
+    # 'table'
+    # 'output'
+    "format": str,
+    "delimiter": str,
+    "comment": (str, bool),
+    "quotechar": str,
+    "header_start": int,
+    "formats": dict,
+    "strip_whitespace": (bool),
+    "names": "list-like",
+    "include_names": "list-like",
+    "exclude_names": "list-like",
+    "fast_writer": (bool, str),
+    "overwrite": (bool),
+}
+
+```
+
+
+###
+
+Please provide the complete set of locations as either a class name, a function name, or a variable name.
+Note that if you include a class, you do not need to list its specific methods.
+You can include either the entire class or don't include the class name and instead include specific methods in the class.
+### Examples:
+```
+full_path1/file1.py
+function: my_function_1
+class: MyClass1
+function: MyClass2.my_method
+
+full_path2/file2.py
+variable: my_var
+function: MyClass3.my_method
+
+full_path3/file3.py
+function: my_function_2
+function: my_function_3
+function: MyClass4.my_method_1
+class: MyClass5
+```
+
+Return just the locations wrapped with ```.
+
+2025-05-15 03:50:02,465 - INFO - prompting with message:
+
+Please look through the following GitHub Problem Description and the Skeleton of Relevant Files.
+Identify all locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related global variables, functions, and classes.
+For each location you provide, either give the name of the class, the name of a method in a class, the name of a function, or the name of a global variable.
+
+### GitHub Problem Description ###
+ascii.qdp Table format assumes QDP commands are upper case
+### Description
+
+ascii.qdp assumes that commands in a QDP file are upper case, for example, for errors they must be "READ SERR 1 2" whereas QDP itself is not case sensitive and case use "read serr 1 2". 
+
+As many QDP files are created by hand, the expectation that all commands be all-caps should be removed.
+
+### Expected behavior
+
+The following qdp file should read into a `Table` with errors, rather than crashing.
+```
+read serr 1 2 
+1 0.5 1 0.5
+```
+
+### How to Reproduce
+
+Create a QDP file:
+```
+> cat > test.qdp
+read serr 1 2 
+1 0.5 1 0.5
+<EOF>
+
+ > python
+Python 3.10.9 (main, Dec  7 2022, 02:03:23) [Clang 13.0.0 (clang-1300.0.29.30)] on darwin
+Type "help", "copyright", "credits" or "license" for more information.
+>>> from astropy.table import Table
+>>> Table.read('test.qdp',format='ascii.qdp')
+WARNING: table_id not specified. Reading the first available table [astropy.io.ascii.qdp]
+Traceback (most recent call last):
+...
+    raise ValueError(f'Unrecognized QDP line: {line}')
+ValueError: Unrecognized QDP line: read serr 1 2
+```
+
+Running "qdp test.qdp" works just fine.
+
+
+### Versions
+
+Python 3.10.9 (main, Dec  7 2022, 02:03:23) [Clang 13.0.0 (clang-1300.0.29.30)]
+astropy 5.1
+Numpy 1.24.1
+pyerfa 2.0.0.1
+Scipy 1.10.0
+Matplotlib 3.6.3
+
+
+
+### Skeleton of Relevant Files ###
+
+### File: astropy/io/ascii/qdp.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+
+
+def _line_type(line, delimiter=None):
+...
+
+
+def _get_type_from_list_of_lines(lines, delimiter=None):
+...
+
+
+def _get_lines_from_file(qdp_file):
+...
+
+
+def _interpret_err_lines(err_specs, ncols, names=None):
+...
+
+
+def _get_tables_from_qdp_file(qdp_file, input_colnames=None, delimiter=None):
+...
+
+
+def _understand_err_col(colnames):
+...
+
+
+def _read_table_qdp(qdp_file, names=None, table_id=None, delimiter=None):
+...
+
+
+def _write_table_qdp(table, filename=None, err_specs=None):
+...
+
+
+class QDPSplitter(core.DefaultSplitter):
+
+    delimiter = " "
+
+
+class QDPHeader(basic.CommentedHeaderHeader):
+
+    splitter_class = QDPSplitter
+    comment = "!"
+    write_comment = "!"
+
+
+class QDPData(basic.BasicData):
+
+    splitter_class = QDPSplitter
+    fill_values = [(core.masked, "NO")]
+    comment = "!"
+    write_comment = None
+
+
+class QDP(basic.Basic):
+
+    _format_name = "qdp"
+    _io_registry_can_write = True
+    _io_registry_suffix = ".qdp"
+    _description = "Quick and Dandy Plotter"
+
+    header_class = QDPHeader
+    data_class = QDPData
+
+    def __init__(self, table_id=None, names=None, err_specs=None, sep=None):
+...
+
+    def read(self, table):
+...
+
+    def write(self, table):
+...
+
+```
+
+### File: astropy/io/ascii/core.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+
+# Global dictionary mapping format arg to the corresponding Reader class
+FORMAT_CLASSES = {}
+
+# Similar dictionary for fast readers
+FAST_CLASSES = {}
+
+
+def _check_multidim_table(table, max_ndim):
+...
+
+
+class CsvWriter:
+
+    # Random 16-character string that gets injected instead of any
+    # empty fields and is then replaced post-write with doubled-quotechar.
+    # Created with:
+    # ''.join(random.choice(string.printable[:90]) for _ in range(16))
+    replace_sentinel = "2b=48Av%0-V3p>bX"
+
+    def __init__(self, csvfile=None, **kwargs):
+...
+
+    def writerow(self, values):
+...
+
+    def writerows(self, values_list):
+...
+
+    def _writerow(self, writerow_func, values, has_empty):
+...
+
+
+class MaskedConstant(numpy.ma.core.MaskedConstant):
+
+    def __hash__(self):
+...
+
+    def __copy__(self):
+...
+
+    def __deepcopy__(self, memo):
+...
+
+
+masked = MaskedConstant()
+
+
+class InconsistentTableError(ValueError):
+    pass
+
+
+class OptionalTableImportError(ImportError):
+    pass
+
+
+class ParameterError(NotImplementedError):
+    pass
+
+
+class FastOptionsError(NotImplementedError):
+    pass
+
+
+class NoType:
+    pass
+
+
+class StrType(NoType):
+    pass
+
+
+class NumType(NoType):
+    pass
+
+
+class FloatType(NumType):
+    pass
+
+
+class BoolType(NoType):
+    pass
+
+
+class IntType(NumType):
+    pass
+
+
+class AllType(StrType, FloatType, IntType):
+    pass
+
+
+class Column:
+
+    def __init__(self, name):
+...
+
+
+class BaseInputter:
+
+    encoding = None
+
+    def get_lines(self, table, newline=None):
+...
+
+    def process_lines(self, lines):
+...
+
+
+class BaseSplitter:
+
+    delimiter = None
+
+    def process_line(self, line):
+...
+
+    def process_val(self, val):
+...
+
+    def __call__(self, lines):
+...
+
+    def join(self, vals):
+...
+
+
+class DefaultSplitter(BaseSplitter):
+
+    delimiter = " "
+    quotechar = '"'
+    doublequote = True
+    escapechar = None
+    quoting = csv.QUOTE_MINIMAL
+    skipinitialspace = True
+    csv_writer = None
+    csv_writer_out = StringIO()
+
+    def process_line(self, line):
+...
+
+    def process_val(self, val):
+...
+
+    def __call__(self, lines):
+...
+
+    def join(self, vals):
+...
+
+
+def _replace_tab_with_space(line, escapechar, quotechar):
+...
+
+
+def _get_line_index(line_or_func, lines):
+...
+
+
+class BaseHeader:
+
+    auto_format = "col{}"
+    start_line = None
+    comment = None
+    splitter_class = DefaultSplitter
+    names = None
+    write_comment = False
+    write_spacer_lines = ["ASCII_TABLE_WRITE_SPACER_LINE"]
+
+    def __init__(self):
+...
+
+    def _set_cols_from_names(self):
+...
+
+    def update_meta(self, lines, meta):
+...
+
+    def get_cols(self, lines):
+...
+
+    def process_lines(self, lines):
+...
+
+    def write_comments(self, lines, meta):
+...
+
+    def write(self, lines):
+...
+
+    @property
+    def colnames(self):
+...
+
+    def remove_columns(self, names):
+...
+
+    def rename_column(self, name, new_name):
+...
+
+    def get_type_map_key(self, col):
+...
+
+    def get_col_type(self, col):
+...
+
+    def check_column_names(self, names, strict_names, guessing):
+...
+
+
+class BaseData:
+
+    start_line = None
+    end_line = None
+    comment = None
+    splitter_class = DefaultSplitter
+    write_spacer_lines = ["ASCII_TABLE_WRITE_SPACER_LINE"]
+    fill_include_names = None
+    fill_exclude_names = None
+    fill_values = [(masked, "")]
+    formats = {}
+
+    def __init__(self):
+...
+
+    def process_lines(self, lines):
+...
+
+    def get_data_lines(self, lines):
+...
+
+    def get_str_vals(self):
+...
+
+    def masks(self, cols):
+...
+
+    def _set_fill_values(self, cols):
+...
+
+    def _set_masks(self, cols):
+...
+
+    def _replace_vals(self, cols):
+...
+
+    def str_vals(self):
+...
+
+    def write(self, lines):
+...
+
+    def _set_col_formats(self):
+...
+
+
+def convert_numpy(numpy_type):
+...
+
+
+class BaseOutputter:
+
+    # User-defined converters which gets set in ascii.ui if a `converter` kwarg
+    # is supplied.
+    converters = {}
+
+    # Derived classes must define default_converters and __call__
+
+    @staticmethod
+    def _validate_and_copy(col, converters):
+...
+
+    def _convert_vals(self, cols):
+...
+
+
+def _deduplicate_names(names):
+...
+
+
+class TableOutputter(BaseOutputter):
+
+    default_converters = [convert_numpy(int), convert_numpy(float), convert_numpy(str)]
+
+    def __call__(self, cols, meta):
+...
+
+
+class MetaBaseReader(type):
+    def __init__(cls, name, bases, dct):
+...
+
+
+def _is_number(x):
+...
+
+
+def _apply_include_exclude_names(table, names, include_names, exclude_names):
+...
+
+
+class BaseReader(metaclass=MetaBaseReader):
+
+    names = None
+    include_names = None
+    exclude_names = None
+    strict_names = False
+    guessing = False
+    encoding = None
+
+    header_class = BaseHeader
+    data_class = BaseData
+    inputter_class = BaseInputter
+    outputter_class = TableOutputter
+
+    # Max column dimension that writer supports for this format. Exceptions
+    # include ECSV (no limit) and HTML (max_ndim=2).
+    max_ndim = 1
+
+    def __init__(self):
+...
+
+    def _check_multidim_table(self, table):
+...
+
+    def read(self, table):
+...
+
+    def inconsistent_handler(self, str_vals, ncols):
+...
+
+    @property
+    def comment_lines(self):
+...
+
+    def update_table_data(self, table):
+...
+
+    def write_header(self, lines, meta):
+...
+
+    def write(self, table):
+...
+
+
+class ContinuationLinesInputter(BaseInputter):
+
+    continuation_char = "\\"
+    replace_char = " "
+    # If no_continue is not None then lines matching this regex are not subject
+    # to line continuation.  The initial use case here is Daophot.  In this
+    # case the continuation character is just replaced with replace_char.
+    no_continue = None
+
+    def process_lines(self, lines):
+...
+
+
+class WhitespaceSplitter(DefaultSplitter):
+    def process_line(self, line):
+...
+
+
+extra_reader_pars = (
+    "Reader",
+    "Inputter",
+    "Outputter",
+    "delimiter",
+    "comment",
+    "quotechar",
+    "header_start",
+    "data_start",
+    "data_end",
+    "converters",
+    "encoding",
+    "data_Splitter",
+    "header_Splitter",
+    "names",
+    "include_names",
+    "exclude_names",
+    "strict_names",
+    "fill_values",
+    "fill_include_names",
+    "fill_exclude_names",
+)
+
+
+def _get_reader(Reader, Inputter=None, Outputter=None, **kwargs):
+...
+
+
+extra_writer_pars = (
+    "delimiter",
+    "comment",
+    "quotechar",
+    "formats",
+    "strip_whitespace",
+    "names",
+    "include_names",
+    "exclude_names",
+    "fill_values",
+    "fill_include_names",
+    "fill_exclude_names",
+)
+
+
+def _get_writer(Writer, fast_writer, **kwargs):
+...
+
+```
+
+### File: astropy/io/ascii/docs.py ###
+```python
+READ_DOCSTRING = """
+    Read the input ``table`` and return the table.  Most of
+    the default behavior for various parameters is determined by the Reader
+    class.
+
+    See also:
+
+    - https://docs.astropy.org/en/stable/io/ascii/
+    - https://docs.astropy.org/en/stable/io/ascii/read.html
+
+...
+
+    encoding : str
+        Allow to specify encoding to read the file (default= ``None``).
+
+    Returns
+    -------
+    dat : `~astropy.table.Table` or <generator>
+        Output table
+
+    """
+
+# Specify allowed types for core write() keyword arguments.  Each entry
+# corresponds to the name of an argument and either a type (e.g. int) or a
+# list of types.  These get used in io.ascii.ui._validate_read_write_kwargs().
+# -  The commented-out kwargs are too flexible for a useful check
+# -  'list-list' is a special case for an iterable that is not a string.
+READ_KWARG_TYPES = {
+    # 'table'
+    "guess": bool,
+    # 'format'
+    # 'Reader'
+    # 'Inputter'
+    # 'Outputter'
+    "delimiter": str,
+    "comment": str,
+    "quotechar": str,
+    "header_start": int,
+    "data_start": (int, str),  # CDS allows 'guess'
+    "data_end": int,
+    "converters": dict,
+    # 'data_Splitter'
+    # 'header_Splitter'
+    "names": "list-like",
+    "include_names": "list-like",
+    "exclude_names": "list-like",
+    "fill_values": "list-like",
+    "fill_include_names": "list-like",
+    "fill_exclude_names": "list-like",
+    "fast_reader": (bool, str, dict),
+    "encoding": str,
+}
+
+
+WRITE_DOCSTRING = """
+    Write the input ``table`` to ``filename``.  Most of the default behavior
+    for various parameters is determined by the Writer class.
+
+    See also:
+
+    - https://docs.astropy.org/en/stable/io/ascii/
+    - https://docs.astropy.org/en/stable/io/ascii/write.html
+
+    Parameters
+...
+    fast_writer : bool, str
+        Whether to use the fast Cython writer.  Can be `True` (use fast writer
+        if available), `False` (do not use fast writer), or ``'force'`` (use
+        fast writer and fail if not available, mostly for testing).
+    overwrite : bool
+        If ``overwrite=False`` (default) and the file exists, then an OSError
+        is raised. This parameter is ignored when the ``output`` arg is not a
+        string (e.g., a file object).
+
+    """
+# Specify allowed types for core write() keyword arguments.  Each entry
+# corresponds to the name of an argument and either a type (e.g. int) or a
+# list of types.  These get used in io.ascii.ui._validate_read_write_kwargs().
+# -  The commented-out kwargs are too flexible for a useful check
+# -  'list-list' is a special case for an iterable that is not a string.
+WRITE_KWARG_TYPES = {
+    # 'table'
+    # 'output'
+    "format": str,
+    "delimiter": str,
+    "comment": (str, bool),
+    "quotechar": str,
+    "header_start": int,
+    "formats": dict,
+    "strip_whitespace": (bool),
+    "names": "list-like",
+    "include_names": "list-like",
+    "exclude_names": "list-like",
+    "fast_writer": (bool, str),
+    "overwrite": (bool),
+}
+
+```
+
+
+###
+
+Please provide the complete set of locations as either a class name, a function name, or a variable name.
+Note that if you include a class, you do not need to list its specific methods.
+You can include either the entire class or don't include the class name and instead include specific methods in the class.
+### Examples:
+```
+full_path1/file1.py
+function: my_function_1
+class: MyClass1
+function: MyClass2.my_method
+
+full_path2/file2.py
+variable: my_var
+function: MyClass3.my_method
+
+full_path3/file3.py
+function: my_function_2
+function: my_function_3
+function: MyClass4.my_method_1
+class: MyClass5
+```
+
+Return just the locations wrapped with ```.
+
+2025-05-15 03:50:02,465 - INFO - ================================================================================
+2025-05-15 03:50:02,465 - INFO - Initializing a decoder model: gpt-4o-2024-05-13 ...
+2025-05-15 03:50:02,473 - INFO - Creating API request
+2025-05-15 03:50:06,515 - INFO - API response ChatCompletion(id='chatcmpl-BXCP4Q0UeWhq0ELn5BqPISm0e1qyB', choices=[Choice(finish_reason='length', index=0, logprobs=None, message=ChatCompletionMessage(content='```\nastropy/io/ascii/qdp.py\nfunction: _line_type\nfunction: _get_type_from_list_of_lines\nfunction: _get_lines_from_file\nfunction: _interpret_err_lines\nfunction: _get_tables_from_qdp_file\nfunction: _understand_err_col\nfunction: _read_table_qdp\nfunction: _write_table_qdp\nclass: QDPSplitter\nclass: QDPHeader\nclass: QDPData\nclass: QDP\n\nastropy/io/ascii/core.py\nvariable: FORMAT_CLASSES\nvariable: FAST_CLASSES\nfunction: _check_multidim_table\nclass: CsvWriter\nclass: MaskedConstant\nvariable: masked\nclass: InconsistentTableError\nclass: OptionalTableImportError\nclass: ParameterError\nclass: FastOptionsError\nclass: NoType\nclass: StrType\nclass: NumType\nclass: FloatType\nclass: BoolType\nclass: IntType\nclass: AllType\nclass: Column\nclass: BaseInputter\nclass: BaseSplitter\nclass: DefaultSplitter\nfunction: _replace_tab_with_space\nfunction: _get_line_index\nclass: BaseHeader\nclass: BaseData\nfunction: convert_numpy\nclass: BaseOutputter\nfunction: _deduplicate_names\nclass: TableOutputter\nclass: MetaBaseReader\nfunction: _is_number\nfunction: _apply_include_exclude_names\nclass: BaseReader\nclass:', refusal=None, role='assistant', annotations=[], audio=None, function_call=None, tool_calls=None))], created=1747252202, model='gpt-4o-2024-05-13', object='chat.completion', service_tier='default', system_fingerprint='fp_a9047283ac', usage=CompletionUsage(completion_tokens=300, prompt_tokens=3488, total_tokens=3788, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=0, audio_tokens=0, reasoning_tokens=0, rejected_prediction_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=0, cached_tokens=0)))
+2025-05-15 03:50:06,532 - INFO - ==== raw output ====
+2025-05-15 03:50:06,532 - INFO - ```
+astropy/io/ascii/qdp.py
+function: _line_type
+function: _get_type_from_list_of_lines
+function: _get_lines_from_file
+function: _interpret_err_lines
+function: _get_tables_from_qdp_file
+function: _understand_err_col
+function: _read_table_qdp
+function: _write_table_qdp
+class: QDPSplitter
+class: QDPHeader
+class: QDPData
+class: QDP
+
+astropy/io/ascii/core.py
+variable: FORMAT_CLASSES
+variable: FAST_CLASSES
+function: _check_multidim_table
+class: CsvWriter
+class: MaskedConstant
+variable: masked
+class: InconsistentTableError
+class: OptionalTableImportError
+class: ParameterError
+class: FastOptionsError
+class: NoType
+class: StrType
+class: NumType
+class: FloatType
+class: BoolType
+class: IntType
+class: AllType
+class: Column
+class: BaseInputter
+class: BaseSplitter
+class: DefaultSplitter
+function: _replace_tab_with_space
+function: _get_line_index
+class: BaseHeader
+class: BaseData
+function: convert_numpy
+class: BaseOutputter
+function: _deduplicate_names
+class: TableOutputter
+class: MetaBaseReader
+function: _is_number
+function: _apply_include_exclude_names
+class: BaseReader
+class:
+2025-05-15 03:50:06,532 - INFO - ================================================================================
+2025-05-15 03:50:06,532 - INFO - ==== extracted locs ====
+2025-05-15 03:50:06,533 - INFO - astropy/io/ascii/qdp.py
+2025-05-15 03:50:06,533 - INFO - astropy/io/ascii/core.py
+2025-05-15 03:50:06,533 - INFO - astropy/io/ascii/docs.py
+2025-05-15 03:50:06,533 - INFO - ================================================================================

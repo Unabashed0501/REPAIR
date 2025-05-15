@@ -1,0 +1,2402 @@
+2025-05-15 03:50:59,925 - INFO - Processing bug astropy__astropy-14365
+2025-05-15 03:51:37,361 - INFO - ================ localize astropy__astropy-14365 ================
+2025-05-15 03:51:37,927 - INFO - prompting with message:
+
+Please review the following GitHub problem description and relevant files, and provide a set of locations that need to be edited to fix the issue.
+The locations can be specified as class names, function or method names, or exact line numbers that require modification.
+
+### GitHub Problem Description ###
+ascii.qdp Table format assumes QDP commands are upper case
+### Description
+
+ascii.qdp assumes that commands in a QDP file are upper case, for example, for errors they must be "READ SERR 1 2" whereas QDP itself is not case sensitive and case use "read serr 1 2". 
+
+As many QDP files are created by hand, the expectation that all commands be all-caps should be removed.
+
+### Expected behavior
+
+The following qdp file should read into a `Table` with errors, rather than crashing.
+```
+read serr 1 2 
+1 0.5 1 0.5
+```
+
+### How to Reproduce
+
+Create a QDP file:
+```
+> cat > test.qdp
+read serr 1 2 
+1 0.5 1 0.5
+<EOF>
+
+ > python
+Python 3.10.9 (main, Dec  7 2022, 02:03:23) [Clang 13.0.0 (clang-1300.0.29.30)] on darwin
+Type "help", "copyright", "credits" or "license" for more information.
+>>> from astropy.table import Table
+>>> Table.read('test.qdp',format='ascii.qdp')
+WARNING: table_id not specified. Reading the first available table [astropy.io.ascii.qdp]
+Traceback (most recent call last):
+...
+    raise ValueError(f'Unrecognized QDP line: {line}')
+ValueError: Unrecognized QDP line: read serr 1 2
+```
+
+Running "qdp test.qdp" works just fine.
+
+
+### Versions
+
+Python 3.10.9 (main, Dec  7 2022, 02:03:23) [Clang 13.0.0 (clang-1300.0.29.30)]
+astropy 5.1
+Numpy 1.24.1
+pyerfa 2.0.0.1
+Scipy 1.10.0
+Matplotlib 3.6.3
+
+
+
+###
+### astropy/io/ascii/qdp.py
+...
+10|from collections.abc import Iterable
+11|
+12|import numpy as np
+13|
+14|from astropy.table import Table
+15|from astropy.utils.exceptions import AstropyUserWarning
+16|
+17|from . import basic, core
+18|
+19|
+20|def _line_type(line, delimiter=None):
+21|    """Interpret a QDP file line.
+22|
+23|    Parameters
+24|    ----------
+25|    line : str
+26|        a single line of the file
+27|
+28|    Returns
+29|    -------
+30|    type : str
+31|        Line type: "comment", "command", or "data"
+32|
+33|    Examples
+34|    --------
+35|    >>> _line_type("READ SERR 3")
+36|    'command'
+37|    >>> _line_type(" \\n    !some gibberish")
+38|    'comment'
+39|    >>> _line_type("   ")
+40|    'comment'
+41|    >>> _line_type(" 21345.45")
+42|    'data,1'
+43|    >>> _line_type(" 21345.45 1.53e-3 1e-3 .04 NO nan")
+44|    'data,6'
+45|    >>> _line_type(" 21345.45,1.53e-3,1e-3,.04,NO,nan", delimiter=',')
+46|    'data,6'
+47|    >>> _line_type(" 21345.45 ! a comment to disturb")
+48|    'data,1'
+49|    >>> _line_type("NO NO NO NO NO")
+50|    'new'
+51|    >>> _line_type("NO,NO,NO,NO,NO", delimiter=',')
+52|    'new'
+53|    >>> _line_type("N O N NOON OON O")
+54|    Traceback (most recent call last):
+55|        ...
+56|    ValueError: Unrecognized QDP line...
+57|    >>> _line_type(" some non-comment gibberish")
+58|    Traceback (most recent call last):
+59|        ...
+60|    ValueError: Unrecognized QDP line...
+61|    """
+62|    _decimal_re = r"[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?"
+63|    _command_re = r"READ [TS]ERR(\s+[0-9]+)+"
+64|
+65|    sep = delimiter
+66|    if delimiter is None:
+67|        sep = r"\s+"
+68|    _new_re = rf"NO({sep}NO)+"
+69|    _data_re = rf"({_decimal_re}|NO|[-+]?nan)({sep}({_decimal_re}|NO|[-+]?nan))*)"
+70|    _type_re = rf"^\s*((?P<command>{_command_re})|(?P<new>{_new_re})|(?P<data>{_data_re})?\s*(\!(?P<comment>.*))?\s*$"
+71|    _line_type_re = re.compile(_type_re)
+72|    line = line.strip()
+73|    if not line:
+74|        return "comment"
+75|    match = _line_type_re.match(line)
+76|
+77|    if match is None:
+78|        raise ValueError(f"Unrecognized QDP line: {line}")
+79|    for type_, val in match.groupdict().items():
+80|        if val is None:
+81|            continue
+82|        if type_ == "data":
+83|            return f"data,{len(val.split(sep=delimiter))}"
+84|        else:
+85|            return type_
+86|
+87|
+88|def _get_type_from_list_of_lines(lines, delimiter=None):
+89|    """Read through the list of QDP file lines and label each line by type.
+90|
+91|    Parameters
+92|    ----------
+93|    lines : list
+94|        List containing one file line in each entry
+95|
+96|    Returns
+97|    -------
+98|    contents : list
+99|        List containing the type for each line (see `line_type_and_data`)
+100|    ncol : int
+101|        The number of columns in the data lines. Must be the same throughout
+102|        the file
+103|
+104|    Examples
+105|    --------
+106|    >>> line0 = "! A comment"
+107|    >>> line1 = "543 12 456.0"
+108|    >>> lines = [line0, line1]
+109|    >>> types, ncol = _get_type_from_list_of_lines(lines)
+110|    >>> types[0]
+111|    'comment'
+112|    >>> types[1]
+113|    'data,3'
+114|    >>> ncol
+115|    3
+116|    >>> lines.append("23")
+117|    >>> _get_type_from_list_of_lines(lines)
+118|    Traceback (most recent call last):
+119|        ...
+120|    ValueError: Inconsistent number of columns
+121|    """
+122|    types = [_line_type(line, delimiter=delimiter) for line in lines]
+123|    current_ncol = None
+124|    for type_ in types:
+125|        if type_.startswith("data,"):
+126|            ncol = int(type_[5:])
+127|            if current_ncol is None:
+128|                current_ncol = ncol
+129|            elif ncol != current_ncol:
+130|                raise ValueError("Inconsistent number of columns")
+131|
+132|    return types, current_ncol
+133|
+134|
+135|def _get_lines_from_file(qdp_file):
+136|    if "\n" in qdp_file:
+137|        lines = qdp_file.split("\n")
+138|    elif isinstance(qdp_file, str):
+139|        with open(qdp_file) as fobj:
+140|            lines = [line.strip() for line in fobj.readlines()]
+141|    elif isinstance(qdp_file, Iterable):
+142|        lines = qdp_file
+143|    else:
+144|        raise ValueError("invalid value of qdb_file")
+145|
+146|    return lines
+147|
+148|
+149|def _interpret_err_lines(err_specs, ncols, names=None):
+150|    """Give list of column names from the READ SERR and TERR commands.
+151|
+152|    Parameters
+153|    ----------
+154|    err_specs : dict
+155|        ``{'serr': [n0, n1, ...], 'terr': [n2, n3, ...]}``
+156|        Error specifications for symmetric and two-sided errors
+157|    ncols : int
+158|        Number of data columns
+159|
+160|    Other Parameters
+161|    ----------------
+162|    names : list of str
+163|        Name of data columns (defaults to ['col1', 'col2', ...]), _not_
+164|        including error columns.
+165|
+166|    Returns
+167|    -------
+168|    colnames : list
+169|        List containing the column names. Error columns will have the name
+170|        of the main column plus ``_err`` for symmetric errors, and ``_perr``
+171|        and ``_nerr`` for positive and negative errors respectively
+172|
+173|    Examples
+174|    --------
+175|    >>> col_in = ['MJD', 'Rate']
+176|    >>> cols = _interpret_err_lines(None, 2, names=col_in)
+177|    >>> cols[0]
+178|    'MJD'
+179|    >>> err_specs = {'terr': [1], 'serr': [2]}
+180|    >>> ncols = 5
+181|    >>> cols = _interpret_err_lines(err_specs, ncols, names=col_in)
+182|    >>> cols[0]
+183|    'MJD'
+184|    >>> cols[2]
+185|    'MJD_nerr'
+186|    >>> cols[4]
+187|    'Rate_err'
+188|    >>> _interpret_err_lines(err_specs, 6, names=col_in)
+189|    Traceback (most recent call last):
+190|        ...
+191|    ValueError: Inconsistent number of input colnames
+192|    """
+193|    colnames = ["" for i in range(ncols)]
+194|    if err_specs is None:
+195|        serr_cols = terr_cols = []
+196|
+197|    else:
+198|        # I don't want to empty the original one when using `pop` below
+199|        err_specs = copy.deepcopy(err_specs)
+200|
+201|        serr_cols = err_specs.pop("serr", [])
+202|        terr_cols = err_specs.pop("terr", [])
+203|
+204|    if names is not None:
+205|        all_error_cols = len(serr_cols) + len(terr_cols) * 2
+206|        if all_error_cols + len(names) != ncols:
+207|            raise ValueError("Inconsistent number of input colnames")
+208|
+209|    shift = 0
+210|    for i in range(ncols):
+211|        col_num = i + 1 - shift
+212|        if colnames[i] != "":
+213|            continue
+214|
+215|        colname_root = f"col{col_num}"
+216|
+217|        if names is not None:
+218|            colname_root = names[col_num - 1]
+219|
+220|        colnames[i] = f"{colname_root}"
+221|        if col_num in serr_cols:
+222|            colnames[i + 1] = f"{colname_root}_err"
+223|            shift += 1
+224|            continue
+225|
+226|        if col_num in terr_cols:
+227|            colnames[i + 1] = f"{colname_root}_perr"
+228|            colnames[i + 2] = f"{colname_root}_nerr"
+229|            shift += 2
+230|            continue
+231|
+232|    assert not np.any([c == "" for c in colnames])
+233|
+234|    return colnames
+235|
+236|
+237|def _get_tables_from_qdp_file(qdp_file, input_colnames=None, delimiter=None):
+238|    """Get all tables from a QDP file.
+239|
+240|    Parameters
+241|    ----------
+242|    qdp_file : str
+243|        Input QDP file name
+244|
+245|    Other Parameters
+246|    ----------------
+247|    input_colnames : list of str
+248|        Name of data columns (defaults to ['col1', 'col2', ...]), _not_
+249|        including error columns.
+250|    delimiter : str
+251|        Delimiter for the values in the table.
+252|
+253|    Returns
+254|    -------
+255|    list of `~astropy.table.Table`
+256|        List containing all the tables present inside the QDP file
+257|    """
+258|    lines = _get_lines_from_file(qdp_file)
+259|    contents, ncol = _get_type_from_list_of_lines(lines, delimiter=delimiter)
+260|
+261|    table_list = []
+262|    err_specs = {}
+263|    colnames = None
+264|
+265|    comment_text = ""
+266|    initial_comments = ""
+267|    command_lines = ""
+268|    current_rows = None
+269|
+270|    for line, datatype in zip(lines, contents):
+271|        line = line.strip().lstrip("!")
+272|        # Is this a comment?
+273|        if datatype == "comment":
+274|            comment_text += line + "\n"
+275|            continue
+276|
+277|        if datatype == "command":
+278|            # The first time I find commands, I save whatever comments into
+279|            # The initial comments.
+280|            if command_lines == "":
+281|                initial_comments = comment_text
+282|                comment_text = ""
+283|
+284|            if err_specs != {}:
+285|                warnings.warn(
+286|                    "This file contains multiple command blocks. Please verify",
+287|                    AstropyUserWarning,
+288|                )
+289|            command_lines += line + "\n"
+290|            continue
+291|
+292|        if datatype.startswith("data"):
+293|            # The first time I find data, I define err_specs
+294|            if err_specs == {} and command_lines != "":
+295|                for cline in command_lines.strip().split("\n"):
+296|                    command = cline.strip().split()
+297|                    # This should never happen, but just in case.
+298|                    if len(command) < 3:
+299|                        continue
+300|                    err_specs[command[1].lower()] = [int(c) for c in command[2:]]
+301|            if colnames is None:
+302|                colnames = _interpret_err_lines(err_specs, ncol, names=input_colnames)
+303|
+304|            if current_rows is None:
+305|                current_rows = []
+306|
+307|            values = []
+308|            for v in line.split(delimiter):
+309|                if v == "NO":
+310|                    values.append(np.ma.masked)
+311|                else:
+312|                    # Understand if number is int or float
+313|                    try:
+314|                        values.append(int(v))
+315|                    except ValueError:
+316|                        values.append(float(v))
+317|            current_rows.append(values)
+318|            continue
+319|
+320|        if datatype == "new":
+321|            # Save table to table_list and reset
+322|            if current_rows is not None:
+323|                new_table = Table(names=colnames, rows=current_rows)
+324|                new_table.meta["initial_comments"] = initial_comments.strip().split(
+325|                    "\n"
+326|                )
+327|                new_table.meta["comments"] = comment_text.strip().split("\n")
+328|                # Reset comments
+329|                comment_text = ""
+330|                table_list.append(new_table)
+331|                current_rows = None
+332|            continue
+333|
+334|    # At the very end, if there is still a table being written, let's save
+335|    # it to the table_list
+336|    if current_rows is not None:
+337|        new_table = Table(names=colnames, rows=current_rows)
+338|        new_table.meta["initial_comments"] = initial_comments.strip().split("\n")
+339|        new_table.meta["comments"] = comment_text.strip().split("\n")
+340|        table_list.append(new_table)
+341|
+342|    return table_list
+343|
+344|
+345|def _understand_err_col(colnames):
+346|    """Get which column names are error columns.
+347|
+348|    Examples
+349|    --------
+350|    >>> colnames = ['a', 'a_err', 'b', 'b_perr', 'b_nerr']
+351|    >>> serr, terr = _understand_err_col(colnames)
+352|    >>> np.allclose(serr, [1])
+353|    True
+354|    >>> np.allclose(terr, [2])
+355|    True
+356|    >>> serr, terr = _understand_err_col(['a', 'a_nerr'])
+357|    Traceback (most recent call last):
+358|    ...
+359|    ValueError: Missing positive error...
+360|    >>> serr, terr = _understand_err_col(['a', 'a_perr'])
+361|    Traceback (most recent call last):
+362|    ...
+363|    ValueError: Missing negative error...
+364|    """
+365|    shift = 0
+366|    serr = []
+367|    terr = []
+368|
+369|    for i, col in enumerate(colnames):
+370|        if col.endswith("_err"):
+371|            # The previous column, but they're numbered from 1!
+372|            # Plus, take shift into account
+373|            serr.append(i - shift)
+374|            shift += 1
+375|        elif col.endswith("_perr"):
+376|            terr.append(i - shift)
+377|            if len(colnames) == i + 1 or not colnames[i + 1].endswith("_nerr"):
+378|                raise ValueError("Missing negative error")
+379|            shift += 2
+380|        elif col.endswith("_nerr") and not colnames[i - 1].endswith("_perr"):
+381|            raise ValueError("Missing positive error")
+382|    return serr, terr
+383|
+384|
+385|def _read_table_qdp(qdp_file, names=None, table_id=None, delimiter=None):
+386|    """Read a table from a QDP file.
+387|
+388|    Parameters
+389|    ----------
+390|    qdp_file : str
+391|        Input QDP file name
+392|
+393|    Other Parameters
+394|    ----------------
+395|    names : list of str
+396|        Name of data columns (defaults to ['col1', 'col2', ...]), _not_
+397|        including error columns.
+398|
+399|    table_id : int, default 0
+400|        Number of the table to be read from the QDP file. This is useful
+401|        when multiple tables present in the file. By default, the first is read.
+402|
+403|    delimiter : str
+404|        Any delimiter accepted by the `sep` argument of str.split()
+405|
+406|    Returns
+407|    -------
+408|    tables : list of `~astropy.table.Table`
+409|        List containing all the tables present inside the QDP file
+410|    """
+411|    if table_id is None:
+412|        warnings.warn(
+413|            "table_id not specified. Reading the first available table",
+414|            AstropyUserWarning,
+415|        )
+416|        table_id = 0
+417|
+418|    tables = _get_tables_from_qdp_file(
+419|        qdp_file, input_colnames=names, delimiter=delimiter
+420|    )
+421|
+422|    return tables[table_id]
+423|
+424|
+425|def _write_table_qdp(table, filename=None, err_specs=None):
+426|    """Write a table to a QDP file.
+427|
+428|    Parameters
+429|    ----------
+430|    table : :class:`~astropy.table.Table`
+431|        Input table to be written
+432|    filename : str
+433|        Output QDP file name
+434|
+435|    Other Parameters
+436|    ----------------
+437|    err_specs : dict
+438|        Dictionary of the format {'serr': [1], 'terr': [2, 3]}, specifying
+439|        which columns have symmetric and two-sided errors (see QDP format
+440|        specification)
+441|    """
+442|    import io
+443|
+444|    fobj = io.StringIO()
+445|
+446|    if "initial_comments" in table.meta and table.meta["initial_comments"] != []:
+447|        for line in table.meta["initial_comments"]:
+448|            line = line.strip()
+449|            if not line.startswith("!"):
+450|                line = "!" + line
+451|            print(line, file=fobj)
+452|
+453|    if err_specs is None:
+454|        serr_cols, terr_cols = _understand_err_col(table.colnames)
+455|    else:
+456|        serr_cols = err_specs.pop("serr", [])
+457|        terr_cols = err_specs.pop("terr", [])
+458|    if serr_cols != []:
+459|        col_string = " ".join([str(val) for val in serr_cols])
+460|        print(f"READ SERR {col_string}", file=fobj)
+461|    if terr_cols != []:
+462|        col_string = " ".join([str(val) for val in terr_cols])
+463|        print(f"READ TERR {col_string}", file=fobj)
+464|
+465|    if "comments" in table.meta and table.meta["comments"] != []:
+466|        for line in table.meta["comments"]:
+467|            line = line.strip()
+468|            if not line.startswith("!"):
+469|                line = "!" + line
+470|            print(line, file=fobj)
+471|
+472|    colnames = table.colnames
+473|    print("!" + " ".join(colnames), file=fobj)
+474|    for row in table:
+475|        values = []
+476|        for val in row:
+477|            if not np.ma.is_masked(val):
+478|                rep = str(val)
+479|            else:
+480|                rep = "NO"
+481|            values.append(rep)
+482|        print(" ".join(values), file=fobj)
+483|
+484|    full_string = fobj.getvalue()
+485|    fobj.close()
+486|
+487|    if filename is not None:
+488|        with open(filename, "w") as fobj:
+489|            print(full_string, file=fobj)
+490|
+491|    return full_string.split("\n")
+492|
+493|
+494|class QDPSplitter(core.DefaultSplitter):
+495|    """
+496|    Split on space for QDP tables.
+497|    """
+498|
+499|    delimiter = " "
+500|
+501|
+502|class QDPHeader(basic.CommentedHeaderHeader):
+503|    """
+504|    Header that uses the :class:`astropy.io.ascii.basic.QDPSplitter`.
+505|    """
+506|
+507|    splitter_class = QDPSplitter
+508|    comment = "!"
+509|    write_comment = "!"
+510|
+511|
+512|class QDPData(basic.BasicData):
+513|    """
+514|    Data that uses the :class:`astropy.io.ascii.basic.CsvSplitter`.
+515|    """
+516|
+517|    splitter_class = QDPSplitter
+518|    fill_values = [(core.masked, "NO")]
+519|    comment = "!"
+520|    write_comment = None
+521|
+522|
+523|class QDP(basic.Basic):
+524|    """Quick and Dandy Plot table.
+525|
+526|    Example::
+527|
+528|        ! Initial comment line 1
+529|        ! Initial comment line 2
+530|        READ TERR 1
+531|        READ SERR 3
+532|        ! Table 0 comment
+533|        !a a(pos) a(neg) b be c d
+534|        53000.5   0.25  -0.5   1  1.5  3.5 2
+535|        54000.5   1.25  -1.5   2  2.5  4.5 3
+536|        NO NO NO NO NO
+537|        ! Table 1 comment
+538|        !a a(pos) a(neg) b be c d
+539|        54000.5   2.25  -2.5   NO  3.5  5.5 5
+540|        55000.5   3.25  -3.5   4  4.5  6.5 nan
+541|
+542|    The input table above contains some initial comments, the error commands,
+543|    then two tables.
+544|    This file format can contain multiple tables, separated by a line full
+545|    of ``NO``s. Comments are exclamation marks, and missing values are single
+546|    ``NO`` entries. The delimiter is usually whitespace, more rarely a comma.
+547|    The QDP format differentiates between data and error columns. The table
+548|    above has commands::
+549|
+550|        READ TERR 1
+551|        READ SERR 3
+552|
+553|    which mean that after data column 1 there will be two error columns
+554|    containing its positive and engative error bars, then data column 2 without
+555|    error bars, then column 3, then a column with the symmetric error of column
+556|    3, then the remaining data columns.
+557|
+558|    As explained below, table headers are highly inconsistent. Possible
+559|    comments containing column names will be ignored and columns will be called
+560|    ``col1``, ``col2``, etc. unless the user specifies their names with the
+561|    ``names=`` keyword argument,
+562|    When passing column names, pass **only the names of the data columns, not
+563|    the error columns.**
+564|    Error information will be encoded in the names of the table columns.
+565|    (e.g. ``a_perr`` and ``a_nerr`` for the positive and negative error of
+566|    column ``a``, ``b_err`` the symmetric error of column ``b``.)
+567|
+568|    When writing tables to this format, users can pass an ``err_specs`` keyword
+569|    passing a dictionary ``{'serr': [3], 'terr': [1, 2]}``, meaning that data
+570|    columns 1 and two will have two additional columns each with their positive
+571|    and negative errors, and data column 3 will have an additional column with
+572|    a symmetric error (just like the ``READ SERR`` and ``READ TERR`` commands
+573|    above)
+574|
+575|    Headers are just comments, and tables distributed by various missions
+576|    can differ greatly in their use of conventions. For example, light curves
+577|    distributed by the Swift-Gehrels mission have an extra space in one header
+578|    entry that makes the number of labels inconsistent with the number of cols.
+579|    For this reason, we ignore the comments that might encode the column names
+580|    and leave the name specification to the user.
+581|
+582|    Example::
+583|
+584|        >               Extra space
+585|        >                   |
+586|        >                   v
+587|        >!     MJD       Err (pos)       Err(neg)        Rate            Error
+588|        >53000.123456   2.378e-05     -2.378472e-05     NO             0.212439
+589|
+590|    These readers and writer classes will strive to understand which of the
+591|    comments belong to all the tables, and which ones to each single table.
+592|    General comments will be stored in the ``initial_comments`` meta of each
+593|    table. The comments of each table will be stored in the ``comments`` meta.
+594|
+595|    Example::
+596|
+597|        t = Table.read(example_qdp, format='ascii.qdp', table_id=1, names=['a', 'b', 'c', 'd'])
+598|
+599|    reads the second table (``table_id=1``) in file ``example.qdp`` containing
+600|    the table above. There are four column names but seven data columns, why?
+601|    Because the ``READ SERR`` and ``READ TERR`` commands say that there are
+602|    three error columns.
+603|    ``t.meta['initial_comments']`` will contain the initial two comment lines
+604|    in the file, while ``t.meta['comments']`` will contain ``Table 1 comment``
+605|
+606|    The table can be written to another file, preserving the same information,
+607|    as::
+608|
+609|        t.write(test_file, err_specs={'terr': [1], 'serr': [3]})
+610|
+611|    Note how the ``terr`` and ``serr`` commands are passed to the writer.
+612|
+613|    """
+614|
+615|    _format_name = "qdp"
+616|    _io_registry_can_write = True
+617|    _io_registry_suffix = ".qdp"
+618|    _description = "Quick and Dandy Plotter"
+619|
+620|    header_class = QDPHeader
+621|    data_class = QDPData
+622|
+623|    def __init__(self, table_id=None, names=None, err_specs=None, sep=None):
+624|        super().__init__()
+625|        self.table_id = table_id
+626|        self.names = names
+627|        self.err_specs = err_specs
+628|        self.delimiter = sep
+629|
+630|    def read(self, table):
+631|        self.lines = self.inputter.get_lines(table, newline="\n")
+632|        return _read_table_qdp(
+633|            self.lines,
+634|            table_id=self.table_id,
+635|            names=self.names,
+636|            delimiter=self.delimiter,
+637|        )
+638|
+639|    def write(self, table):
+640|        self._check_multidim_table(table)
+641|        lines = _write_table_qdp(table, err_specs=self.err_specs)
+642|        return lines
+
+
+### astropy/io/ascii/core.py
+...
+26|import numpy
+27|
+28|from astropy.table import Table
+29|from astropy.utils.data import get_readable_fileobj
+30|from astropy.utils.exceptions import AstropyWarning
+31|
+32|from . import connect
+33|from .docs import READ_DOCSTRING, WRITE_DOCSTRING
+34|
+35|# Global dictionary mapping format arg to the corresponding Reader class
+36|FORMAT_CLASSES = {}
+37|
+38|# Similar dictionary for fast readers
+39|FAST_CLASSES = {}
+40|
+41|
+42|def _check_multidim_table(table, max_ndim):
+43|    """Check that ``table`` has only columns with ndim <= ``max_ndim``.
+44|
+45|    Currently ECSV is the only built-in format that supports output of arbitrary
+46|    N-d columns, but HTML supports 2-d.
+47|    """
+48|    # No limit?
+49|    if max_ndim is None:
+50|        return
+51|
+52|    # Check for N-d columns
+53|    nd_names = [col.info.name for col in table.itercols() if len(col.shape) > max_ndim]
+54|    if nd_names:
+55|        raise ValueError(
+56|            f"column(s) with dimension > {max_ndim} "
+57|            "cannot be be written with this format, try using 'ecsv' "
+58|            "(Enhanced CSV) format"
+59|        )
+60|
+61|
+62|class CsvWriter:
+63|    """
+64|    Internal class to replace the csv writer ``writerow`` and ``writerows``
+65|    functions so that in the case of ``delimiter=' '`` and
+66|    ``quoting=csv.QUOTE_MINIMAL``, the output field value is quoted for empty
+67|    fields (when value == '').
+68|
+69|    This changes the API slightly in that the writerow() and writerows()
+70|    methods return the output written string instead of the length of
+71|    that string.
+72|
+73|    Examples
+74|    --------
+75|    >>> from astropy.io.ascii.core import CsvWriter
+76|    >>> writer = CsvWriter(delimiter=' ')
+77|    >>> print(writer.writerow(['hello', '', 'world']))
+78|    hello "" world
+79|    """
+80|
+81|    # Random 16-character string that gets injected instead of any
+82|    # empty fields and is then replaced post-write with doubled-quotechar.
+83|    # Created with:
+84|    # ''.join(random.choice(string.printable[:90]) for _ in range(16))
+85|    replace_sentinel = "2b=48Av%0-V3p>bX"
+86|
+87|    def __init__(self, csvfile=None, **kwargs):
+88|        self.csvfile = csvfile
+89|
+90|        # Temporary StringIO for catching the real csv.writer() object output
+91|        self.temp_out = StringIO()
+92|        self.writer = csv.writer(self.temp_out, **kwargs)
+93|
+94|        dialect = self.writer.dialect
+95|        self.quotechar2 = dialect.quotechar * 2
+96|        self.quote_empty = (dialect.quoting == csv.QUOTE_MINIMAL) and (
+97|            dialect.delimiter == " "
+98|        )
+99|
+100|    def writerow(self, values):
+101|        """
+102|        Similar to csv.writer.writerow but with the custom quoting behavior.
+103|        Returns the written string instead of the length of that string.
+104|        """
+105|        has_empty = False
+106|
+107|        # If QUOTE_MINIMAL and space-delimited then replace empty fields with
+108|        # the sentinel value.
+109|        if self.quote_empty:
+110|            for i, value in enumerate(values):
+111|                if value == "":
+112|                    has_empty = True
+113|                    values[i] = self.replace_sentinel
+114|
+115|        return self._writerow(self.writer.writerow, values, has_empty)
+116|
+117|    def writerows(self, values_list):
+118|        """
+119|        Similar to csv.writer.writerows but with the custom quoting behavior.
+120|        Returns the written string instead of the length of that string.
+121|        """
+122|        has_empty = False
+123|
+124|        # If QUOTE_MINIMAL and space-delimited then replace empty fields with
+125|        # the sentinel value.
+126|        if self.quote_empty:
+127|            for values in values_list:
+128|                for i, value in enumerate(values):
+129|                    if value == "":
+130|                        has_empty = True
+131|                        values[i] = self.replace_sentinel
+132|
+133|        return self._writerow(self.writer.writerows, values_list, has_empty)
+134|
+135|    def _writerow(self, writerow_func, values, has_empty):
+136|        """
+137|        Call ``writerow_func`` (either writerow or writerows) with ``values``.
+138|        If it has empty fields that have been replaced then change those
+139|        sentinel strings back to quoted empty strings, e.g. ``""``.
+140|        """
+141|        # Clear the temporary StringIO buffer that self.writer writes into and
+142|        # then call the real csv.writer().writerow or writerows with values.
+143|        self.temp_out.seek(0)
+144|        self.temp_out.truncate()
+145|        writerow_func(values)
+146|
+147|        row_string = self.temp_out.getvalue()
+148|
+149|        if self.quote_empty and has_empty:
+150|            row_string = re.sub(self.replace_sentinel, self.quotechar2, row_string)
+151|
+152|        # self.csvfile is defined then write the output.  In practice the pure
+153|        # Python writer calls with csvfile=None, while the fast writer calls with
+154|        # a file-like object.
+155|        if self.csvfile:
+156|            self.csvfile.write(row_string)
+157|
+158|        return row_string
+159|
+160|
+161|class MaskedConstant(numpy.ma.core.MaskedConstant):
+162|    """A trivial extension of numpy.ma.masked.
+163|
+164|    We want to be able to put the generic term ``masked`` into a dictionary.
+165|    The constant ``numpy.ma.masked`` is not hashable (see
+166|    https://github.com/numpy/numpy/issues/4660), so we need to extend it
+167|    here with a hash value.
+168|
+169|    See https://github.com/numpy/numpy/issues/11021 for rationale for
+170|    __copy__ and __deepcopy__ methods.
+171|    """
+172|
+173|    def __hash__(self):
+174|        """All instances of this class shall have the same hash."""
+175|        # Any large number will do.
+176|        return 1234567890
+177|
+178|    def __copy__(self):
+179|        """This is a singleton so just return self."""
+180|        return self
+181|
+182|    def __deepcopy__(self, memo):
+183|        return self
+184|
+185|
+186|masked = MaskedConstant()
+187|
+188|
+189|class InconsistentTableError(ValueError):
+190|    """
+191|    Indicates that an input table is inconsistent in some way.
+192|
+193|    The default behavior of ``BaseReader`` is to throw an instance of
+194|    this class if a data row doesn't match the header.
+195|    """
+196|
+197|
+198|class OptionalTableImportError(ImportError):
+199|    """
+200|    Indicates that a dependency for table reading is not present.
+201|
+202|    An instance of this class is raised whenever an optional reader
+203|    with certain required dependencies cannot operate because of
+204|    an ImportError.
+205|    """
+206|
+207|
+208|class ParameterError(NotImplementedError):
+209|    """
+210|    Indicates that a reader cannot handle a passed parameter.
+211|
+212|    The C-based fast readers in ``io.ascii`` raise an instance of
+213|    this error class upon encountering a parameter that the
+214|    C engine cannot handle.
+215|    """
+216|
+217|
+218|class FastOptionsError(NotImplementedError):
+219|    """
+220|    Indicates that one of the specified options for fast
+221|    reading is invalid.
+222|    """
+223|
+224|
+225|class NoType:
+226|    """
+227|    Superclass for ``StrType`` and ``NumType`` classes.
+228|
+229|    This class is the default type of ``Column`` and provides a base
+230|    class for other data types.
+231|    """
+232|
+233|
+234|class StrType(NoType):
+235|    """
+236|    Indicates that a column consists of text data.
+237|    """
+238|
+239|
+240|class NumType(NoType):
+241|    """
+242|    Indicates that a column consists of numerical data.
+243|    """
+244|
+245|
+246|class FloatType(NumType):
+247|    """
+248|    Describes floating-point data.
+249|    """
+250|
+251|
+252|class BoolType(NoType):
+253|    """
+254|    Describes boolean data.
+255|    """
+256|
+257|
+258|class IntType(NumType):
+259|    """
+260|    Describes integer data.
+261|    """
+262|
+263|
+264|class AllType(StrType, FloatType, IntType):
+265|    """
+266|    Subclass of all other data types.
+267|
+268|    This type is returned by ``convert_numpy`` if the given numpy
+269|    type does not match ``StrType``, ``FloatType``, or ``IntType``.
+270|    """
+271|
+272|
+273|class Column:
+274|    """Table column.
+275|
+276|    The key attributes of a Column object are:
+277|
+278|    * **name** : column name
+279|    * **type** : column type (NoType, StrType, NumType, FloatType, IntType)
+280|    * **dtype** : numpy dtype (optional, overrides **type** if set)
+281|    * **str_vals** : list of column values as strings
+282|    * **fill_values** : dict of fill values
+283|    * **shape** : list of element shape (default [] => scalar)
+284|    * **data** : list of converted column values
+285|    * **subtype** : actual datatype for columns serialized with JSON
+286|    """
+287|
+288|    def __init__(self, name):
+289|        self.name = name
+290|        self.type = NoType  # Generic type (Int, Float, Str etc)
+291|        self.dtype = None  # Numpy dtype if available
+292|        self.str_vals = []
+293|        self.fill_values = {}
+294|        self.shape = []
+295|        self.subtype = None
+296|
+297|
+298|class BaseInputter:
+299|    """
+300|    Get the lines from the table input and return a list of lines.
+301|
+302|    """
+303|
+304|    encoding = None
+305|    """Encoding used to read the file"""
+306|
+307|    def get_lines(self, table, newline=None):
+308|        """Get the lines from the ``table`` input.
+309|
+310|        The input table can be one of:
+311|
+312|        * File name
+313|        * String (newline separated) with all header and data lines (must have at least 2 lines)
+314|        * File-like object with read() method
+315|        * List of strings
+316|
+317|        Parameters
+318|        ----------
+319|        table : str, file-like, list
+320|            Can be either a file name, string (newline separated) with all header and data
+321|            lines (must have at least 2 lines), a file-like object with a
+322|            ``read()`` method, or a list of strings.
+323|        newline :
+324|            Line separator. If `None` use OS default from ``splitlines()``.
+325|
+326|        Returns
+327|        -------
+328|        lines : list
+329|            List of lines
+330|        """
+331|        try:
+332|            if hasattr(table, "read") or (
+333|                "\n" not in table + "" and "\r" not in table + ""
+334|            ):
+335|                with get_readable_fileobj(table, encoding=self.encoding) as fileobj:
+336|                    table = fileobj.read()
+337|            if newline is None:
+338|                lines = table.splitlines()
+339|            else:
+340|                lines = table.split(newline)
+341|        except TypeError:
+342|            try:
+343|                # See if table supports indexing, slicing, and iteration
+344|                table[0]
+345|                table[0:1]
+346|                iter(table)
+347|                if len(table) > 1:
+348|                    lines = table
+349|                else:
+350|                    # treat single entry as if string had been passed directly
+351|                    if newline is None:
+352|                        lines = table[0].splitlines()
+353|                    else:
+354|                        lines = table[0].split(newline)
+355|
+356|            except TypeError:
+357|                raise TypeError(
+358|                    'Input "table" must be a string (filename or data) or an iterable'
+359|                )
+360|
+361|        return self.process_lines(lines)
+362|
+363|    def process_lines(self, lines):
+364|        """Process lines for subsequent use.  In the default case do nothing.
+365|        This routine is not generally intended for removing comment lines or
+366|        stripping whitespace.  These are done (if needed) in the header and
+367|        data line processing.
+368|
+369|        Override this method if something more has to be done to convert raw
+370|        input lines to the table rows.  For example the
+371|        ContinuationLinesInputter derived class accounts for continuation
+372|        characters if a row is split into lines.
+373|        """
+374|        return lines
+375|
+376|
+377|class BaseSplitter:
+378|    """
+379|    Base splitter that uses python's split method to do the work.
+380|
+381|    This does not handle quoted values.  A key feature is the formulation of
+382|    __call__ as a generator that returns a list of the split line values at
+383|    each iteration.
+384|
+385|    There are two methods that are intended to be overridden, first
+386|    ``process_line()`` to do pre-processing on each input line before splitting
+387|    and ``process_val()`` to do post-processing on each split string value.  By
+388|    default these apply the string ``strip()`` function.  These can be set to
+389|    another function via the instance attribute or be disabled entirely, for
+390|    example::
+391|
+392|      reader.header.splitter.process_val = lambda x: x.lstrip()
+393|      reader.data.splitter.process_val = None
+394|
+395|    """
+396|
+397|    delimiter = None
+398|    """ one-character string used to separate fields """
+399|
+400|    def process_line(self, line):
+401|        """Remove whitespace at the beginning or end of line.  This is especially useful for
+402|        whitespace-delimited files to prevent spurious columns at the beginning or end.
+403|        """
+404|        return line.strip()
+405|
+406|    def process_val(self, val):
+407|        """Remove whitespace at the beginning or end of value."""
+408|        return val.strip()
+409|
+410|    def __call__(self, lines):
+411|        if self.process_line:
+412|            lines = (self.process_line(x) for x in lines)
+413|        for line in lines:
+414|            vals = line.split(self.delimiter)
+415|            if self.process_val:
+416|                yield [self.process_val(x) for x in vals]
+417|            else:
+418|                yield vals
+419|
+420|    def join(self, vals):
+421|        if self.delimiter is None:
+422|            delimiter = " "
+423|        else:
+424|            delimiter = self.delimiter
+425|        return delimiter.join(str(x) for x in vals)
+426|
+427|
+428|class DefaultSplitter(BaseSplitter):
+429|    """Default class to split strings into columns using python csv.  The class
+430|    attributes are taken from the csv Dialect class.
+431|
+432|    Typical usage::
+433|
+434|      # lines = ..
+435|      splitter = ascii.DefaultSplitter()
+436|      for col_vals in splitter(lines):
+437|          for col_val in col_vals:
+438|               ...
+439|
+440|    """
+441|
+442|    delimiter = " "
+443|    """ one-character string used to separate fields. """
+444|    quotechar = '"'
+445|    """ control how instances of *quotechar* in a field are quoted """
+446|    doublequote = True
+447|    """ character to remove special meaning from following character """
+448|    escapechar = None
+449|    """ one-character stringto quote fields containing special characters """
+450|    quoting = csv.QUOTE_MINIMAL
+451|    """ control when quotes are recognized by the reader """
+452|    skipinitialspace = True
+453|    """ ignore whitespace immediately following the delimiter """
+454|    csv_writer = None
+455|    csv_writer_out = StringIO()
+456|
+457|    def process_line(self, line):
+458|        """Remove whitespace at the beginning or end of line.  This is especially useful for
+459|        whitespace-delimited files to prevent spurious columns at the beginning or end.
+460|        If splitting on whitespace then replace unquoted tabs with space first.
+461|        """
+462|        if self.delimiter == r"\s":
+463|            line = _replace_tab_with_space(line, self.escapechar, self.quotechar)
+464|        return line.strip() + "\n"
+465|
+466|    def process_val(self, val):
+467|        """Remove whitespace at the beginning or end of value."""
+468|        return val.strip(" \t")
+469|
+470|    def __call__(self, lines):
+471|        """Return an iterator over the table ``lines``, where each iterator output
+472|        is a list of the split line values.
+473|
+474|        Parameters
+475|        ----------
+476|        lines : list
+477|            List of table lines
+478|
+479|        Yields
+480|        ------
+481|        line : list of str
+482|            Each line's split values.
+483|
+484|        """
+485|        if self.process_line:
+486|            lines = [self.process_line(x) for x in lines]
+487|
+488|        delimiter = " " if self.delimiter == r"\s" else self.delimiter
+489|
+490|        csv_reader = csv.reader(
+491|            lines,
+492|            delimiter=delimiter,
+493|            doublequote=self.doublequote,
+494|            escapechar=self.escapechar,
+495|            quotechar=self.quotechar,
+496|            quoting=self.quoting,
+497|            skipinitialspace=self.skipinitialspace,
+498|        )
+499|        for vals in csv_reader:
+500|            if self.process_val:
+501|                yield [self.process_val(x) for x in vals]
+502|            else:
+503|                yield vals
+504|
+505|    def join(self, vals):
+506|        delimiter = " " if self.delimiter is None else str(self.delimiter)
+507|
+508|        if self.csv_writer is None:
+509|            self.csv_writer = CsvWriter(
+510|                delimiter=delimiter,
+511|                doublequote=self.doublequote,
+512|                escapechar=self.escapechar,
+513|                quotechar=self.quotechar,
+514|                quoting=self.quoting,
+515|            )
+516|        if self.process_val:
+517|            vals = [self.process_val(x) for x in vals]
+518|        out = self.csv_writer.writerow(vals).rstrip("\r\n")
+519|
+520|        return out
+521|
+522|
+523|def _replace_tab_with_space(line, escapechar, quotechar):
+524|    """Replace tabs with spaces in given string, preserving quoted substrings.
+525|
+526|    Parameters
+527|    ----------
+528|    line : str
+529|        String containing tabs to be replaced with spaces.
+530|    escapechar : str
+531|        Character in ``line`` used to escape special characters.
+532|    quotechar : str
+533|        Character in ``line`` indicating the start/end of a substring.
+534|
+535|    Returns
+536|    -------
+537|    line : str
+538|        A copy of ``line`` with tabs replaced by spaces, preserving quoted substrings.
+539|    """
+540|    newline = []
+541|    in_quote = False
+542|    lastchar = "NONE"
+543|    for char in line:
+544|        if char == quotechar and lastchar != escapechar:
+545|            in_quote = not in_quote
+546|        if char == "\t" and not in_quote:
+547|            char = " "
+548|        lastchar = char
+549|        newline.append(char)
+550|    return "".join(newline)
+551|
+552|
+553|def _get_line_index(line_or_func, lines):
+554|    """Return the appropriate line index, depending on ``line_or_func`` which
+555|    can be either a function, a positive or negative int, or None.
+556|    """
+557|    if hasattr(line_or_func, "__call__"):
+558|        return line_or_func(lines)
+559|    elif line_or_func:
+560|        if line_or_func >= 0:
+561|            return line_or_func
+562|        else:
+563|            n_lines = sum(1 for line in lines)
+564|            return n_lines + line_or_func
+565|    else:
+566|        return line_or_func
+567|
+568|
+569|class BaseHeader:
+570|    """
+571|    Base table header reader.
+572|    """
+573|
+574|    auto_format = "col{}"
+575|    """ format string for auto-generating column names """
+576|    start_line = None
+577|    """ None, int, or a function of ``lines`` that returns None or int """
+578|    comment = None
+579|    """ regular expression for comment lines """
+580|    splitter_class = DefaultSplitter
+581|    """ Splitter class for splitting data lines into columns """
+582|    names = None
+583|    """ list of names corresponding to each data column """
+584|    write_comment = False
+585|    write_spacer_lines = ["ASCII_TABLE_WRITE_SPACER_LINE"]
+586|
+587|    def __init__(self):
+588|        self.splitter = self.splitter_class()
+589|
+590|    def _set_cols_from_names(self):
+591|        self.cols = [Column(name=x) for x in self.names]
+592|
+593|    def update_meta(self, lines, meta):
+594|        """
+595|        Extract any table-level metadata, e.g. keywords, comments, column metadata, from
+596|        the table ``lines`` and update the OrderedDict ``meta`` in place.  This base
+597|        method extracts comment lines and stores them in ``meta`` for output.
+598|        """
+599|        if self.comment:
+600|            re_comment = re.compile(self.comment)
+601|            comment_lines = [x for x in lines if re_comment.match(x)]
+602|        else:
+603|            comment_lines = []
+604|        comment_lines = [
+605|            re.sub("^" + self.comment, "", x).strip() for x in comment_lines
+606|        ]
+607|        if comment_lines:
+608|            meta.setdefault("table", {})["comments"] = comment_lines
+609|
+610|    def get_cols(self, lines):
+611|        """Initialize the header Column objects from the table ``lines``.
+612|
+613|        Based on the previously set Header attributes find or create the column names.
+614|        Sets ``self.cols`` with the list of Columns.
+615|
+616|        Parameters
+617|        ----------
+618|        lines : list
+619|            List of table lines
+620|
+621|        """
+622|        start_line = _get_line_index(self.start_line, self.process_lines(lines))
+623|        if start_line is None:
+624|            # No header line so auto-generate names from n_data_cols
+625|            # Get the data values from the first line of table data to determine n_data_cols
+626|            try:
+627|                first_data_vals = next(self.data.get_str_vals())
+628|            except StopIteration:
+629|                raise InconsistentTableError(
+630|                    "No data lines found so cannot autogenerate column names"
+631|                )
+632|            n_data_cols = len(first_data_vals)
+633|            self.names = [self.auto_format.format(i) for i in range(1, n_data_cols + 1)]
+634|
+635|        else:
+636|            for i, line in enumerate(self.process_lines(lines)):
+637|                if i == start_line:
+638|                    break
+639|            else:  # No header line matching
+640|                raise ValueError("No header line found in table")
+641|
+642|            self.names = next(self.splitter([line]))
+643|
+644|        self._set_cols_from_names()
+645|
+646|    def process_lines(self, lines):
+647|        """Generator to yield non-blank and non-comment lines."""
+648|        re_comment = re.compile(self.comment) if self.comment else None
+649|        # Yield non-comment lines
+650|        for line in lines:
+651|            if line.strip() and (not self.comment or not re_comment.match(line)):
+652|                yield line
+653|
+654|    def write_comments(self, lines, meta):
+655|        if self.write_comment not in (False, None):
+656|            for comment in meta.get("comments", []):
+657|                lines.append(self.write_comment + comment)
+658|
+659|    def write(self, lines):
+660|        if self.start_line is not None:
+661|            for i, spacer_line in zip(
+662|                range(self.start_line), itertools.cycle(self.write_spacer_lines)
+663|            ):
+664|                lines.append(spacer_line)
+665|            lines.append(self.splitter.join([x.info.name for x in self.cols]))
+666|
+667|    @property
+668|    def colnames(self):
+669|        """Return the column names of the table."""
+670|        return tuple(
+671|            col.name if isinstance(col, Column) else col.info.name for col in self.cols
+672|        )
+673|
+674|    def remove_columns(self, names):
+675|        """
+676|        Remove several columns from the table.
+677|
+678|        Parameters
+679|        ----------
+680|        names : list
+681|            A list containing the names of the columns to remove
+682|        """
+683|        colnames = self.colnames
+684|        for name in names:
+685|            if name not in colnames:
+686|                raise KeyError(f"Column {name} does not exist")
+687|
+688|        self.cols = [col for col in self.cols if col.name not in names]
+689|
+690|    def rename_column(self, name, new_name):
+691|        """
+692|        Rename a column.
+693|
+694|        Parameters
+695|        ----------
+696|        name : str
+697|            The current name of the column.
+698|        new_name : str
+699|            The new name for the column
+700|        """
+701|        try:
+702|            idx = self.colnames.index(name)
+703|        except ValueError:
+704|            raise KeyError(f"Column {name} does not exist")
+705|
+706|        col = self.cols[idx]
+707|
+708|        # For writing self.cols can contain cols that are not Column.  Raise
+709|        # exception in that case.
+710|        if isinstance(col, Column):
+711|            col.name = new_name
+712|        else:
+713|            raise TypeError(f"got column type {type(col)} instead of required {Column}")
+714|
+715|    def get_type_map_key(self, col):
+716|        return col.raw_type
+717|
+718|    def get_col_type(self, col):
+719|        try:
+720|            type_map_key = self.get_type_map_key(col)
+721|            return self.col_type_map[type_map_key.lower()]
+722|        except KeyError:
+723|            raise ValueError(
+724|                f'Unknown data type ""{col.raw_type}"" for column "{col.name}"'
+725|            )
+726|
+727|    def check_column_names(self, names, strict_names, guessing):
+728|        """
+729|        Check column names.
+730|
+731|        This must be done before applying the names transformation
+732|        so that guessing will fail appropriately if ``names`` is supplied.
+733|        For instance if the basic reader is given a table with no column header
+734|        row.
+735|
+736|        Parameters
+737|        ----------
+738|        names : list
+739|            User-supplied list of column names
+740|        strict_names : bool
+741|            Whether to impose extra requirements on names
+742|        guessing : bool
+743|            True if this method is being called while guessing the table format
+744|        """
+745|        if strict_names:
+746|            # Impose strict requirements on column names (normally used in guessing)
+747|            bads = [" ", ",", "|", "\t", "'", '"']
+748|            for name in self.colnames:
+749|                if (
+750|                    _is_number(name)
+751|                    or len(name) == 0
+752|                    or name[0] in bads
+753|                    or name[-1] in bads
+754|                ):
+755|                    raise InconsistentTableError(
+756|                        f"Column name {name!r} does not meet strict name requirements"
+757|                    )
+758|        # When guessing require at least two columns, except for ECSV which can
+759|        # reliably be guessed from the header requirements.
+760|        if (
+761|            guessing
+762|            and len(self.colnames) <= 1
+763|            and self.__class__.__name__ != "EcsvHeader"
+764|        ):
+765|            raise ValueError(
+766|                "Table format guessing requires at least two columns, got {}".format(
+767|                    list(self.colnames)
+768|                )
+769|            )
+770|
+771|        if names is not None and len(names) != len(self.colnames):
+772|            raise InconsistentTableError(
+773|                "Length of names argument ({}) does not match number"
+774|                " of table columns ({})".format(len(names), len(self.colnames))
+775|            )
+776|
+777|
+778|class BaseData:
+779|    """
+780|    Base table data reader.
+781|    """
+782|
+783|    start_line = None
+784|    """ None, int, or a function of ``lines`` that returns None or int """
+785|    end_line = None
+786|    """ None, int, or a function of ``lines`` that returns None or int """
+787|    comment = None
+788|    """ Regular expression for comment lines """
+789|    splitter_class = DefaultSplitter
+790|    """ Splitter class for splitting data lines into columns """
+791|    write_spacer_lines = ["ASCII_TABLE_WRITE_SPACER_LINE"]
+792|    fill_include_names = None
+793|    fill_exclude_names = None
+794|    fill_values = [(masked, "")]
+795|    formats = {}
+796|
+797|    def __init__(self):
+798|        # Need to make sure fill_values list is instance attribute, not class attribute.
+799|        # On read, this will be overwritten by the default in the ui.read (thus, in
+800|        # the current implementation there can be no different default for different
+801|        # Readers). On write, ui.py does not specify a default, so this line here matters.
+802|        self.fill_values = copy.copy(self.fill_values)
+803|        self.formats = copy.copy(self.formats)
+804|        self.splitter = self.splitter_class()
+805|
+806|    def process_lines(self, lines):
+807|        """
+808|        READ: Strip out comment lines and blank lines from list of ``lines``.
+809|
+810|        Parameters
+811|        ----------
+812|        lines : list
+813|            All lines in table
+814|
+815|        Returns
+816|        -------
+817|        lines : list
+818|            List of lines
+819|
+820|        """
+821|        nonblank_lines = (x for x in lines if x.strip())
+822|        if self.comment:
+823|            re_comment = re.compile(self.comment)
+824|            return [x for x in nonblank_lines if not re_comment.match(x)]
+825|        else:
+826|            return [x for x in nonblank_lines]
+827|
+828|    def get_data_lines(self, lines):
+829|        """
+830|        READ: Set ``data_lines`` attribute to lines slice comprising table data values.
+831|        """
+832|        data_lines = self.process_lines(lines)
+833|        start_line = _get_line_index(self.start_line, data_lines)
+834|        end_line = _get_line_index(self.end_line, data_lines)
+835|
+836|        if start_line is not None or end_line is not None:
+837|            self.data_lines = data_lines[slice(start_line, end_line)]
+838|        else:  # Don't copy entire data lines unless necessary
+839|            self.data_lines = data_lines
+840|
+841|    def get_str_vals(self):
+842|        """Return a generator that returns a list of column values (as strings)
+843|        for each data line.
+844|        """
+845|        return self.splitter(self.data_lines)
+846|
+847|    def masks(self, cols):
+848|        """READ: Set fill value for each column and then apply that fill value.
+849|
+850|        In the first step it is evaluated with value from ``fill_values`` applies to
+851|        which column using ``fill_include_names`` and ``fill_exclude_names``.
+852|        In the second step all replacements are done for the appropriate columns.
+853|        """
+854|        if self.fill_values:
+855|            self._set_fill_values(cols)
+856|            self._set_masks(cols)
+857|
+858|    def _set_fill_values(self, cols):
+859|        """READ, WRITE: Set fill values of individual cols based on fill_values of BaseData.
+860|
+861|        fill values has the following form:
+862|        <fill_spec> = (<bad_value>, <fill_value>, <optional col_name>...)
+863|        fill_values = <fill_spec> or list of <fill_spec>'s
+864|
+865|        """
+866|        if self.fill_values:
+867|            # when we write tables the columns may be astropy.table.Columns
+868|            # which don't carry a fill_values by default
+869|            for col in cols:
+870|                if not hasattr(col, "fill_values"):
+871|                    col.fill_values = {}
+872|
+873|            # if input is only one <fill_spec>, then make it a list
+874|            with suppress(TypeError):
+875|                self.fill_values[0] + ""
+876|                self.fill_values = [self.fill_values]
+877|
+878|            # Step 1: Set the default list of columns which are affected by
+879|            # fill_values
+880|            colnames = set(self.header.colnames)
+881|            if self.fill_include_names is not None:
+882|                colnames.intersection_update(self.fill_include_names)
+883|            if self.fill_exclude_names is not None:
+884|                colnames.difference_update(self.fill_exclude_names)
+885|
+886|            # Step 2a: Find out which columns are affected by this tuple
+887|            # iterate over reversed order, so last condition is set first and
+888|            # overwritten by earlier conditions
+889|            for replacement in reversed(self.fill_values):
+890|                if len(replacement) < 2:
+891|                    raise ValueError(
+892|                        "Format of fill_values must be "
+893|                        "(<bad>, <fill>, <optional col1>, ...)"
+894|                    )
+895|                elif len(replacement) == 2:
+896|                    affect_cols = colnames
+897|                else:
+898|                    affect_cols = replacement[2:]
+899|
+900|                for i, key in (
+901|                    (i, x)
+902|                    for i, x in enumerate(self.header.colnames)
+903|                    if x in affect_cols
+904|                ):
+905|                    cols[i].fill_values[replacement[0]] = str(replacement[1])
+906|
+907|    def _set_masks(self, cols):
+908|        """READ: Replace string values in col.str_vals and set masks."""
+909|        if self.fill_values:
+910|            for col in (col for col in cols if col.fill_values):
+911|                col.mask = numpy.zeros(len(col.str_vals), dtype=bool)
+912|                for i, str_val in (
+913|                    (i, x) for i, x in enumerate(col.str_vals) if x in col.fill_values
+914|                ):
+915|                    col.str_vals[i] = col.fill_values[str_val]
+916|                    col.mask[i] = True
+917|
+918|    def _replace_vals(self, cols):
+919|        """WRITE: replace string values in col.str_vals."""
+920|        if self.fill_values:
+921|            for col in (col for col in cols if col.fill_values):
+922|                for i, str_val in (
+923|                    (i, x) for i, x in enumerate(col.str_vals) if x in col.fill_values
+924|                ):
+925|                    col.str_vals[i] = col.fill_values[str_val]
+926|                if masked in col.fill_values and hasattr(col, "mask"):
+927|                    mask_val = col.fill_values[masked]
+928|                    for i in col.mask.nonzero()[0]:
+929|                        col.str_vals[i] = mask_val
+930|
+931|    def str_vals(self):
+932|        """WRITE: convert all values in table to a list of lists of strings.
+933|
+934|        This sets the fill values and possibly column formats from the input
+935|        formats={} keyword, then ends up calling table.pprint._pformat_col_iter()
+936|        by a circuitous path. That function does the real work of formatting.
+937|        Finally replace anything matching the fill_values.
+938|
+939|        Returns
+940|        -------
+941|        values : list of list of str
+942|        """
+943|        self._set_fill_values(self.cols)
+944|        self._set_col_formats()
+945|        for col in self.cols:
+946|            col.str_vals = list(col.info.iter_str_vals())
+947|        self._replace_vals(self.cols)
+948|        return [col.str_vals for col in self.cols]
+949|
+950|    def write(self, lines):
+951|        """Write ``self.cols`` in place to ``lines``.
+952|
+953|        Parameters
+954|        ----------
+955|        lines : list
+956|            List for collecting output of writing self.cols.
+957|        """
+958|        if hasattr(self.start_line, "__call__"):
+959|            raise TypeError("Start_line attribute cannot be callable for write()")
+960|        else:
+961|            data_start_line = self.start_line or 0
+962|
+963|        while len(lines) < data_start_line:
+964|            lines.append(itertools.cycle(self.write_spacer_lines))
+965|
+966|        col_str_iters = self.str_vals()
+967|        for vals in zip(*col_str_iters):
+968|            lines.append(self.splitter.join(vals))
+969|
+970|    def _set_col_formats(self):
+971|        """WRITE: set column formats."""
+972|        for col in self.cols:
+973|            if col.info.name in self.formats:
+974|                col.info.format = self.formats[col.info.name]
+975|
+976|
+977|def convert_numpy(numpy_type):
+978|    """Return a tuple containing a function which converts a list into a numpy
+979|    array and the type produced by the converter function.
+980|
+981|    Parameters
+982|    ----------
+983|    numpy_type : numpy data-type
+984|        The numpy type required of an array returned by ``converter``. Must be a
+985|        valid `numpy type <https://numpy.org/doc/stable/user/basics.types.html>`_
+986|        (e.g., numpy.uint, numpy.int8, numpy.int64, numpy.float64) or a python
+987|        type covered by a numpy type (e.g., int, float, str, bool).
+988|
+989|    Returns
+990|    -------
+991|    converter : callable
+992|        ``converter`` is a function which accepts a list and converts it to a
+993|        numpy array of type ``numpy_type``.
+994|    converter_type : type
+995|        ``converter_type`` tracks the generic data type produced by the
+996|        converter function.
+997|
+998|    Raises
+999|    ------
+1000|    ValueError
+1001|        Raised by ``converter`` if the list elements could not be converted to
+1002|        the required type.
+1003|    """
+1004|    # Infer converter type from an instance of numpy_type.
+1005|    type_name = numpy.array([], dtype=numpy_type).dtype.name
+1006|    if "int" in type_name:
+1007|        converter_type = IntType
+1008|    elif "float" in type_name:
+1009|        converter_type = FloatType
+1010|    elif "bool" in type_name:
+1011|        converter_type = BoolType
+1012|    elif "str" in type_name:
+1013|        converter_type = StrType
+1014|    else:
+1015|        converter_type = AllType
+1016|
+1017|    def bool_converter(vals):
+1018|        """
+1019|        Convert values "False" and "True" to bools.  Raise an exception
+1020|        for any other string values.
+1021|        """
+1022|        if len(vals) == 0:
+1023|            return numpy.array([], dtype=bool)
+1024|
+1025|        # Try a smaller subset first for a long array
+1026|        if len(vals) > 10000:
+1027|            svals = numpy.asarray(vals[:1000])
+1028|            if not numpy.all(
+1029|                (svals == "False") | (svals == "True") | (svals == "0") | (svals == "1")
+1030|            ):
+1031|                raise ValueError('bool input strings must be False, True, 0, 1, or ""')
+1032|        vals = numpy.asarray(vals)
+1033|
+1034|        trues = (vals == "True") | (vals == "1")
+1035|        falses = (vals == "False") | (vals == "0")
+1036|        if not numpy.all(trues | falses):
+1037|            raise ValueError('bool input strings must be only False, True, 0, 1, or ""')
+1038|
+1039|        return trues
+1040|
+1041|    def generic_converter(vals):
+1042|        return numpy.array(vals, numpy_type)
+1043|
+1044|    converter = bool_converter if converter_type is BoolType else generic_converter
+1045|
+1046|    return converter, converter_type
+1047|
+1048|
+1049|class BaseOutputter:
+1050|    """Output table as a dict of column objects keyed on column name.  The
+1051|    table data are stored as plain python lists within the column objects.
+1052|    """
+1053|
+1054|    # User-defined converters which gets set in ascii.ui if a `converter` kwarg
+1055|    # is supplied.
+1056|    converters = {}
+1057|
+1058|    # Derived classes must define default_converters and __call__
+1059|
+1060|    @staticmethod
+1061|    def _validate_and_copy(col, converters):
+1062|        """Validate the format for the type converters and then copy those
+1063|        which are valid converters for this column (i.e. converter type is
+1064|        a subclass of col.type).
+1065|        """
+1066|        # Allow specifying a single converter instead of a list of converters.
+1067|        # The input `converters` must be a ``type`` value that can init np.dtype.
+1068|        try:
+1069|            # Don't allow list-like things that dtype accepts
+1070|            assert type(converters) is type
+1071|            converters = [numpy.dtype(converters)]
+1072|        except (AssertionError, TypeError):
+1073|            pass
+1074|
+1075|        converters_out = []
+1076|        try:
+1077|            for converter in converters:
+1078|                try:
+1079|                    converter_func, converter_type = converter
+1080|                except TypeError as err:
+1081|                    if str(err).startswith("cannot unpack"):
+1082|                        converter_func, converter_type = convert_numpy(converter)
+1083|                    else:
+1084|                        raise
+1085|                if not issubclass(converter_type, NoType):
+1086|                    raise ValueError("converter_type must be a subclass of NoType")
+1087|                if issubclass(converter_type, col.type):
+1088|                    converters_out.append((converter_func, converter_type))
+1089|
+1090|        except (ValueError, TypeError) as err:
+1091|            raise ValueError(
+1092|                "Error: invalid format for converters, see "
+1093|                f"documentation\n{converters}: {err}"
+1094|            )
+1095|        return converters_out
+1096|
+1097|    def _convert_vals(self, cols):
+1098|        for col in cols:
+1099|            for key, converters in self.converters.items():
+1100|                if fnmatch.fnmatch(col.name, key):
+1101|                    break
+1102|            else:
+1103|                if col.dtype is not None:
+1104|                    converters = [convert_numpy(col.dtype)]
+1105|                else:
+1106|                    converters = self.default_converters
+1107|
+1108|            col.converters = self._validate_and_copy(col, converters)
+1109|
+1110|            # Catch the last error in order to provide additional information
+1111|            # in case all attempts at column conversion fail.  The initial
+1112|            # value of of last_error will apply if no converters are defined
+1113|            # and the first col.converters[0] access raises IndexError.
+1114|            last_err = "no converters defined"
+1115|
+1116|            while not hasattr(col, "data"):
+1117|                # Try converters, popping the unsuccessful ones from the list.
+1118|                # If there are no converters left here then fail.
+1119|                if not col.converters:
+1120|                    raise ValueError(f"Column {col.name} failed to convert: {last_err}")
+1121|
+1122|                converter_func, converter_type = col.converters[0]
+1123|                if not issubclass(converter_type, col.type):
+1124|                    raise TypeError("converter type does not match column type")
+1125|
+1126|                try:
+1127|                    col.data = converter_func(col.str_vals)
+1128|                    col.type = converter_type
+1129|                except (OverflowError, TypeError, ValueError) as err:
+1130|                    # Overflow during conversion (most likely an int that
+1131|                    # doesn't fit in native C long). Put string at the top of
+1132|                    # the converters list for the next while iteration.
+1133|                    # With python/cpython#95778 this has been supplemented with a
+1134|                    # "ValueError: Exceeds the limit (4300) for integer string conversion"
+1135|                    # so need to catch that as well.
+1136|                    if isinstance(err, OverflowError) or (
+1137|                        isinstance(err, ValueError)
+1138|                        and str(err).startswith("Exceeds the limit")
+1139|                    ):
+1140|                        warnings.warn(
+1141|                            f"OverflowError converting to {converter_type.__name__} in"
+1142|                            f" column {col.name}, reverting to String.",
+1143|                            AstropyWarning,
+1144|                        )
+1145|                        col.converters.insert(0, convert_numpy(str))
+1146|                    else:
+1147|                        col.converters.pop(0)
+1148|                    last_err = err
+1149|
+1150|
+1151|def _deduplicate_names(names):
+1152|    """Ensure there are no duplicates in ``names``.
+1153|
+1154|    This is done by iteratively adding ``_<N>`` to the name for increasing N
+1155|    until the name is unique.
+1156|    """
+1157|    new_names = []
+1158|    existing_names = set()
+1159|
+1160|    for name in names:
+1161|        base_name = name + "_"
+1162|        i = 1
+1163|        while name in existing_names:
+1164|            # Iterate until a unique name is found
+1165|            name = base_name + str(i)
+1166|            i += 1
+1167|        new_names.append(name)
+1168|        existing_names.add(name)
+1169|
+1170|    return new_names
+1171|
+1172|
+1173|class TableOutputter(BaseOutputter):
+1174|    """
+1175|    Output the table as an astropy.table.Table object.
+1176|    """
+1177|
+1178|    default_converters = [convert_numpy(int), convert_numpy(float), convert_numpy(str)]
+1179|
+1180|    def __call__(self, cols, meta):
+1181|        # Sets col.data to numpy array and col.type to io.ascii Type class (e.g.
+1182|        # FloatType) for each col.
+1183|        self._convert_vals(cols)
+1184|
+1185|        t_cols = [
+1186|            numpy.ma.MaskedArray(x.data, mask=x.mask)
+1187|            if hasattr(x, "mask") and numpy.any(x.mask)
+1188|            else x.data
+1189|            for x in cols
+1190|        ]
+1191|        out = Table(t_cols, names=[x.name for x in cols], meta=meta["table"])
+1192|
+1193|        for col, out_col in zip(cols, out.columns.values()):
+1194|            for attr in ("format", "unit", "description"):
+1195|                if hasattr(col, attr):
+1196|                    setattr(out_col, attr, getattr(col, attr))
+1197|            if hasattr(col, "meta"):
+1198|                out_col.meta.update(col.meta)
+1199|
+1200|        return out
+1201|
+1202|
+1203|class MetaBaseReader(type):
+1204|    def __init__(cls, name, bases, dct):
+1205|        super().__init__(name, bases, dct)
+1206|
+1207|        format = dct.get("_format_name")
+1208|        if format is None:
+1209|            return
+1210|
+1211|        fast = dct.get("_fast")
+1212|        if fast is not None:
+1213|            FAST_CLASSES[format] = cls
+1214|
+1215|        FORMAT_CLASSES[format] = cls
+1216|
+1217|        io_formats = ["ascii." + format] + dct.get("_io_registry_format_aliases", [])
+1218|
+1219|        if dct.get("_io_registry_suffix"):
+1220|            func = functools.partial(connect.io_identify, dct["_io_registry_suffix"])
+1221|            connect.io_registry.register_identifier(io_formats[0], Table, func)
+1222|
+1223|        for io_format in io_formats:
+1224|            func = functools.partial(connect.io_read, io_format)
+1225|            header = f"ASCII reader '{io_format}' details\n"
+1226|            func.__doc__ = (
+1227|                inspect.cleandoc(READ_DOCSTRING).strip()
+1228|                + "\n\n"
+1229|                + header
+1230|                + re.sub(".", "=", header)
+1231|                + "\n"
+1232|            )
+1233|            func.__doc__ += inspect.cleandoc(cls.__doc__).strip()
+1234|            connect.io_registry.register_reader(io_format, Table, func)
+1235|
+1236|            if dct.get("_io_registry_can_write", True):
+1237|                func = functools.partial(connect.io_write, io_format)
+1238|                header = f"ASCII writer '{io_format}' details\n"
+1239|                func.__doc__ = (
+1240|                    inspect.cleandoc(WRITE_DOCSTRING).strip()
+1241|                    + "\n\n"
+1242|                    + header
+1243|                    + re.sub(".", "=", header)
+1244|                    + "\n"
+1245|                )
+1246|                func.__doc__ += inspect.cleandoc(cls.__doc__).strip()
+1247|                connect.io_registry.register_writer(io_format, Table, func)
+1248|
+1249|
+1250|def _is_number(x):
+1251|    with suppress(ValueError):
+1252|        x = float(x)
+1253|        return True
+1254|    return False
+1255|
+1256|
+1257|def _apply_include_exclude_names(table, names, include_names, exclude_names):
+1258|    """
+1259|    Apply names, include_names and exclude_names to a table or BaseHeader.
+1260|
+1261|    For the latter this relies on BaseHeader implementing ``colnames``,
+1262|    ``rename_column``, and ``remove_columns``.
+1263|
+1264|    Parameters
+1265|    ----------
+1266|    table : `~astropy.table.Table`, `~astropy.io.ascii.BaseHeader`
+1267|        Input table or BaseHeader subclass instance
+1268|    names : list
+1269|        List of names to override those in table (set to None to use existing names)
+1270|    include_names : list
+1271|        List of names to include in output
+1272|    exclude_names : list
+1273|        List of names to exclude from output (applied after ``include_names``)
+1274|
+1275|    """
+1276|
+1277|    def rename_columns(table, names):
+1278|        # Rename table column names to those passed by user
+1279|        # Temporarily rename with names that are not in `names` or `table.colnames`.
+1280|        # This ensures that rename succeeds regardless of existing names.
+1281|        xxxs = "x" * max(len(name) for name in list(names) + list(table.colnames))
+1282|        for ii, colname in enumerate(table.colnames):
+1283|            table.rename_column(colname, xxxs + str(ii))
+1284|
+1285|        for ii, name in enumerate(names):
+1286|            table.rename_column(xxxs + str(ii), name)
+1287|
+1288|    if names is not None:
+1289|        rename_columns(table, names)
+1290|    else:
+1291|        colnames_uniq = _deduplicate_names(table.colnames)
+1292|        if colnames_uniq != list(table.colnames):
+1293|            rename_columns(table, colnames_uniq)
+1294|
+1295|    names_set = set(table.colnames)
+1296|
+1297|    if include_names is not None:
+1298|        names_set.intersection_update(include_names)
+1299|    if exclude_names is not None:
+1300|        names_set.difference_update(exclude_names)
+1301|    if names_set != set(table.colnames):
+1302|        remove_names = set(table.colnames) - names_set
+1303|        table.remove_columns(remove_names)
+1304|
+1305|
+1306|class BaseReader(metaclass=MetaBaseReader):
+1307|    """Class providing methods to read and write an ASCII table using the specified
+1308|    header, data, inputter, and outputter instances.
+1309|
+1310|    Typical usage is to instantiate a Reader() object and customize the
+1311|    ``header``, ``data``, ``inputter``, and ``outputter`` attributes.  Each
+1312|    of these is an object of the corresponding class.
+1313|
+1314|    There is one method ``inconsistent_handler`` that can be used to customize the
+1315|    behavior of ``read()`` in the event that a data row doesn't match the header.
+1316|    The default behavior is to raise an InconsistentTableError.
+1317|
+1318|    """
+1319|
+1320|    names = None
+1321|    include_names = None
+1322|    exclude_names = None
+1323|    strict_names = False
+1324|    guessing = False
+1325|    encoding = None
+1326|
+1327|    header_class = BaseHeader
+1328|    data_class = BaseData
+1329|    inputter_class = BaseInputter
+1330|    outputter_class = TableOutputter
+1331|
+1332|    # Max column dimension that writer supports for this format. Exceptions
+1333|    # include ECSV (no limit) and HTML (max_ndim=2).
+1334|    max_ndim = 1
+1335|
+1336|    def __init__(self):
+1337|        self.header = self.header_class()
+1338|        self.data = self.data_class()
+1339|        self.inputter = self.inputter_class()
+1340|        self.outputter = self.outputter_class()
+1341|        # Data and Header instances benefit from a little cross-coupling.  Header may need to
+1342|        # know about number of data columns for auto-column name generation and Data may
+1343|        # need to know about header (e.g. for fixed-width tables where widths are spec'd in header.
+1344|        self.data.header = self.header
+1345|        self.header.data = self.data
+1346|
+1347|        # Metadata, consisting of table-level meta and column-level meta.  The latter
+1348|        # could include information about column type, description, formatting, etc,
+1349|        # depending on the table meta format.
+1350|        self.meta = OrderedDict(table=OrderedDict(), cols=OrderedDict())
+1351|
+1352|    def _check_multidim_table(self, table):
+1353|        """Check that the dimensions of columns in ``table`` are acceptable.
+1354|
+1355|        The reader class attribute ``max_ndim`` defines the maximum dimension of
+1356|        columns that can be written using this format. The base value is ``1``,
+1357|        corresponding to normal scalar columns with just a length.
+1358|
+1359|        Parameters
+1360|        ----------
+1361|        table : `~astropy.table.Table`
+1362|            Input table.
+1363|
+1364|        Raises
+1365|        ------
+1366|        ValueError
+1367|            If any column exceeds the number of allowed dimensions
+1368|        """
+1369|        _check_multidim_table(table, self.max_ndim)
+1370|
+1371|    def read(self, table):
+1372|        """Read the ``table`` and return the results in a format determined by
+1373|        the ``outputter`` attribute.
+1374|
+1375|        The ``table`` parameter is any string or object that can be processed
+1376|        by the instance ``inputter``.  For the base Inputter class ``table`` can be
+1377|        one of:
+1378|
+1379|        * File name
+1380|        * File-like object
+1381|        * String (newline separated) with all header and data lines (must have at least 2 lines)
+1382|        * List of strings
+1383|
+1384|        Parameters
+1385|        ----------
+1386|        table : str, file-like, list
+1387|            Input table.
+1388|
+1389|        Returns
+1390|        -------
+1391|        table : `~astropy.table.Table`
+1392|            Output table
+1393|
+1394|        """
+1395|        # If ``table`` is a file then store the name in the ``data``
+1396|        # attribute. The ``table`` is a "file" if it is a string
+1397|        # without the new line specific to the OS.
+1398|        with suppress(TypeError):
+1399|            # Strings only
+1400|            if os.linesep not in table + "":
+1401|                self.data.table_name = os.path.basename(table)
+1402|
+1403|        # If one of the newline chars is set as field delimiter, only
+1404|        # accept the other one as line splitter
+1405|        if self.header.splitter.delimiter == "\n":
+1406|            newline = "\r"
+1407|        elif self.header.splitter.delimiter == "\r":
+1408|            newline = "\n"
+1409|        else:
+1410|            newline = None
+1411|
+1412|        # Get a list of the lines (rows) in the table
+1413|        self.lines = self.inputter.get_lines(table, newline=newline)
+1414|
+1415|        # Set self.data.data_lines to a slice of lines contain the data rows
+1416|        self.data.get_data_lines(self.lines)
+1417|
+1418|        # Extract table meta values (e.g. keywords, comments, etc).  Updates self.meta.
+1419|        self.header.update_meta(self.lines, self.meta)
+1420|
+1421|        # Get the table column definitions
+1422|        self.header.get_cols(self.lines)
+1423|
+1424|        # Make sure columns are valid
+1425|        self.header.check_column_names(self.names, self.strict_names, self.guessing)
+1426|
+1427|        self.cols = cols = self.header.cols
+1428|        self.data.splitter.cols = cols
+1429|        n_cols = len(cols)
+1430|
+1431|        for i, str_vals in enumerate(self.data.get_str_vals()):
+1432|            if len(str_vals) != n_cols:
+1433|                str_vals = self.inconsistent_handler(str_vals, n_cols)
+1434|
+1435|                # if str_vals is None, we skip this row
+1436|                if str_vals is None:
+1437|                    continue
+1438|
+1439|                # otherwise, we raise an error only if it is still inconsistent
+1440|                if len(str_vals) != n_cols:
+1441|                    errmsg = (
+1442|                        "Number of header columns ({}) inconsistent with"
+1443|                        " data columns ({}) at data line {}\n"
+1444|                        "Header values: {}\n"
+1445|                        "Data values: {}".format(
+1446|                            n_cols, len(str_vals), i, [x.name for x in cols], str_vals
+1447|                        )
+1448|                    )
+1449|
+1450|                    raise InconsistentTableError(errmsg)
+1451|
+1452|            for j, col in enumerate(cols):
+1453|                col.str_vals.append(str_vals[j])
+1454|
+1455|        self.data.masks(cols)
+1456|        if hasattr(self.header, "table_meta"):
+1457|            self.meta["table"].update(self.header.table_meta)
+1458|
+1459|        _apply_include_exclude_names(
+1460|            self.header, self.names, self.include_names, self.exclude_names
+1461|        )
+1462|
+1463|        table = self.outputter(self.header.cols, self.meta)
+1464|        self.cols = self.header.cols
+1465|
+1466|        return table
+1467|
+1468|    def inconsistent_handler(self, str_vals, ncols):
+1469|        """
+1470|        Adjust or skip data entries if a row is inconsistent with the header.
+1471|
+1472|        The default implementation does no adjustment, and hence will always trigger
+1473|        an exception in read() any time the number of data entries does not match
+1474|        the header.
+1475|
+1476|        Note that this will *not* be called if the row already matches the header.
+1477|
+1478|        Parameters
+1479|        ----------
+1480|        str_vals : list
+1481|            A list of value strings from the current row of the table.
+1482|        ncols : int
+1483|            The expected number of entries from the table header.
+1484|
+1485|        Returns
+1486|        -------
+1487|        str_vals : list
+1488|            List of strings to be parsed into data entries in the output table. If
+1489|            the length of this list does not match ``ncols``, an exception will be
+1490|            raised in read().  Can also be None, in which case the row will be
+1491|            skipped.
+1492|        """
+1493|        # an empty list will always trigger an InconsistentTableError in read()
+1494|        return str_vals
+1495|
+1496|    @property
+1497|    def comment_lines(self):
+1498|        """Return lines in the table that match header.comment regexp."""
+1499|        if not hasattr(self, "lines"):
+1500|            raise ValueError(
+1501|                "Table must be read prior to accessing the header comment lines"
+1502|            )
+1503|        if self.header.comment:
+1504|            re_comment = re.compile(self.header.comment)
+1505|            comment_lines = [x for x in self.lines if re_comment.match(x)]
+1506|        else:
+1507|            comment_lines = []
+1508|        return comment_lines
+1509|
+1510|    def update_table_data(self, table):
+1511|        """
+1512|        Update table columns in place if needed.
+1513|
+1514|        This is a hook to allow updating the table columns after name
+1515|        filtering but before setting up to write the data.  This is currently
+1516|        only used by ECSV and is otherwise just a pass-through.
+1517|
+1518|        Parameters
+1519|        ----------
+1520|        table : `astropy.table.Table`
+1521|            Input table for writing
+1522|
+1523|        Returns
+1524|        -------
+1525|        table : `astropy.table.Table`
+1526|            Output table for writing
+1527|        """
+1528|        return table
+1529|
+1530|    def write_header(self, lines, meta):
+1531|        self.header.write_comments(lines, meta)
+1532|        self.header.write(lines)
+1533|
+1534|    def write(self, table):
+1535|        """
+1536|        Write ``table`` as list of strings.
+1537|
+1538|        Parameters
+1539|        ----------
+1540|        table : `~astropy.table.Table`
+1541|            Input table data.
+1542|
+1543|        Returns
+1544|        -------
+1545|        lines : list
+1546|            List of strings corresponding to ASCII table
+1547|
+1548|        """
+1549|        # Check column names before altering
+1550|        self.header.cols = list(table.columns.values())
+1551|        self.header.check_column_names(self.names, self.strict_names, False)
+1552|
+1553|        # In-place update of columns in input ``table`` to reflect column
+1554|        # filtering.  Note that ``table`` is guaranteed to be a copy of the
+1555|        # original user-supplied table.
+1556|        _apply_include_exclude_names(
+1557|            table, self.names, self.include_names, self.exclude_names
+1558|        )
+1559|
+1560|        # This is a hook to allow updating the table columns after name
+1561|        # filtering but before setting up to write the data.  This is currently
+1562|        # only used by ECSV and is otherwise just a pass-through.
+1563|        table = self.update_table_data(table)
+1564|
+1565|        # Check that table column dimensions are supported by this format class.
+1566|        # Most formats support only 1-d columns, but some like ECSV support N-d.
+1567|        self._check_multidim_table(table)
+1568|
+1569|        # Now use altered columns
+1570|        new_cols = list(table.columns.values())
+1571|        # link information about the columns to the writer object (i.e. self)
+1572|        self.header.cols = new_cols
+1573|        self.data.cols = new_cols
+1574|        self.header.table_meta = table.meta
+1575|
+1576|        # Write header and data to lines list
+1577|        lines = []
+1578|        self.write_header(lines, table.meta)
+1579|        self.data.write(lines)
+1580|
+1581|        return lines
+1582|
+1583|
+1584|class ContinuationLinesInputter(BaseInputter):
+1585|    """Inputter where lines ending in ``continuation_char`` are joined with the subsequent line.
+1586|
+1587|    Example::
+1588|
+1589|      col1 col2 col3
+1590|      1 \
+1591|      2 3
+...
+
+
+
+
+###
+
+Please provide the class name, function or method name, or the exact line numbers that need to be edited.
+The possible location outputs should be either "class", "function" or "line".
+
+### Examples:
+```
+full_path1/file1.py
+line: 10
+class: MyClass1
+line: 51
+
+full_path2/file2.py
+function: MyClass2.my_method
+line: 12
+
+full_path3/file3.py
+function: my_function
+line: 24
+line: 156
+```
+
+Return just the location(s) wrapped with ```.
+
+2025-05-15 03:51:37,934 - INFO - ================================================================================
+2025-05-15 03:51:38,092 - INFO - Initializing a decoder model: gpt-4o-2024-05-13 ...
+2025-05-15 03:51:38,124 - INFO - Creating API request
+2025-05-15 03:51:40,647 - INFO - API response ChatCompletion(id='chatcmpl-BXCQcM3a24ArA6hILV694dovv9z2l', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```\nastropy/io/ascii/qdp.py\nline: 62\nline: 63\nfunction: _line_type\nline: 300\n```', refusal=None, role='assistant', annotations=[], audio=None, function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=1, logprobs=None, message=ChatCompletionMessage(content='```\nastropy/io/ascii/qdp.py\nline: 63\nline: 70\nline: 300\n```', refusal=None, role='assistant', annotations=[], audio=None, function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=2, logprobs=None, message=ChatCompletionMessage(content='```\nastropy/io/ascii/qdp.py\nline: 63\nline: 300\n```', refusal=None, role='assistant', annotations=[], audio=None, function_call=None, tool_calls=None)), Choice(finish_reason='stop', index=3, logprobs=None, message=ChatCompletionMessage(content='```\nastropy/io/ascii/qdp.py\nline: 63\nline: 70\nline: 300\n```', refusal=None, role='assistant', annotations=[], audio=None, function_call=None, tool_calls=None))], created=1747252298, model='gpt-4o-2024-05-13', object='chat.completion', service_tier='default', system_fingerprint='fp_a9047283ac', usage=CompletionUsage(completion_tokens=109, prompt_tokens=22213, total_tokens=22322, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=0, audio_tokens=0, reasoning_tokens=0, rejected_prediction_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=0, cached_tokens=0)))
+2025-05-15 03:51:40,648 - INFO - ==== raw output ====
+2025-05-15 03:51:40,648 - INFO - ```
+astropy/io/ascii/qdp.py
+line: 62
+line: 63
+function: _line_type
+line: 300
+```
+2025-05-15 03:51:40,648 - INFO - ================================================================================
+2025-05-15 03:51:40,648 - INFO - ==== extracted locs ====
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/qdp.py
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/core.py
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/docs.py
+2025-05-15 03:51:40,648 - INFO - ================================================================================
+2025-05-15 03:51:40,648 - INFO - ==== raw output ====
+2025-05-15 03:51:40,648 - INFO - ```
+astropy/io/ascii/qdp.py
+line: 63
+line: 70
+line: 300
+```
+2025-05-15 03:51:40,648 - INFO - ================================================================================
+2025-05-15 03:51:40,648 - INFO - ==== extracted locs ====
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/qdp.py
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/core.py
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/docs.py
+2025-05-15 03:51:40,648 - INFO - ================================================================================
+2025-05-15 03:51:40,648 - INFO - ==== raw output ====
+2025-05-15 03:51:40,648 - INFO - ```
+astropy/io/ascii/qdp.py
+line: 63
+line: 300
+```
+2025-05-15 03:51:40,648 - INFO - ================================================================================
+2025-05-15 03:51:40,648 - INFO - ==== extracted locs ====
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/qdp.py
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/core.py
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/docs.py
+2025-05-15 03:51:40,648 - INFO - ================================================================================
+2025-05-15 03:51:40,648 - INFO - ==== raw output ====
+2025-05-15 03:51:40,648 - INFO - ```
+astropy/io/ascii/qdp.py
+line: 63
+line: 70
+line: 300
+```
+2025-05-15 03:51:40,648 - INFO - ================================================================================
+2025-05-15 03:51:40,648 - INFO - ==== extracted locs ====
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/qdp.py
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/core.py
+2025-05-15 03:51:40,648 - INFO - astropy/io/ascii/docs.py
+2025-05-15 03:51:40,648 - INFO - ================================================================================
+2025-05-15 03:51:40,648 - INFO - ==== Input coarse_locs
+2025-05-15 03:51:40,648 - INFO - 
+### astropy/io/ascii/qdp.py
+function: _line_type
+function: _get_type_from_list_of_lines
+function: _get_lines_from_file
+function: _interpret_err_lines
+function: _get_tables_from_qdp_file
+function: _understand_err_col
+function: _read_table_qdp
+function: _write_table_qdp
+class: QDPSplitter
+class: QDPHeader
+class: QDPData
+class: QDP
+### astropy/io/ascii/core.py
+variable: FORMAT_CLASSES
+variable: FAST_CLASSES
+function: _check_multidim_table
+class: CsvWriter
+class: MaskedConstant
+variable: masked
+class: InconsistentTableError
+class: OptionalTableImportError
+class: ParameterError
+class: FastOptionsError
+class: NoType
+class: StrType
+class: NumType
+class: FloatType
+class: BoolType
+class: IntType
+class: AllType
+class: Column
+class: BaseInputter
+class: BaseSplitter
+class: DefaultSplitter
+function: _replace_tab_with_space
+function: _get_line_index
+class: BaseHeader
+class: BaseData
+function: convert_numpy
+class: BaseOutputter
+function: _deduplicate_names
+class: TableOutputter
+class: MetaBaseReader
+function: _is_number
+function: _apply_include_exclude_names
+class: BaseReader
+class:
+### astropy/io/ascii/docs.py
+
+

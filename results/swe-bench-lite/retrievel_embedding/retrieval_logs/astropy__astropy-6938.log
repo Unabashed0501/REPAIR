@@ -1,0 +1,3918 @@
+2025-05-15 03:43:16,773 - INFO - Processing bug astropy__astropy-6938
+2025-05-15 03:43:30,997 - INFO - Total number of considered files: 37
+2025-05-15 03:43:31,720 - INFO - Total number of documents: 37
+2025-05-15 03:44:12,072 - INFO - Retrieving with query:
+Possible bug in io.fits related to D exponents
+I came across the following code in ``fitsrec.py``:
+
+```python
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+```
+
+I think this may be incorrect because as far as I can tell ``replace`` is not an in-place operation for ``chararray`` (it returns a copy). Commenting out this code doesn't cause any tests to fail so I think this code isn't being tested anyway.
+
+2025-05-15 03:44:12,756 - INFO - Embedding Tokens: 0
+2025-05-15 03:44:12,756 - INFO - ================
+2025-05-15 03:44:12,756 - INFO - astropy/io/fits/fitsrec.py
+2025-05-15 03:44:12,756 - INFO - starts = self._coldefs.starts[:]
+        spans = self._coldefs.spans
+        format = self._coldefs[col_idx].format
+
+        # The the index of the "end" column of the record, beyond
+        # which we can't write
+        end = super().field(-1).itemsize
+        starts.append(end + starts[-1])
+
+        if col_idx > 0:
+            lead = starts[col_idx] - starts[col_idx - 1] - spans[col_idx - 1]
+        else:
+            lead = 0
+
+        if lead < 0:
+            warnings.warn('Column {!r} starting point overlaps the previous '
+                          'column.'.format(col_idx + 1))
+
+        trail = starts[col_idx + 1] - starts[col_idx] - spans[col_idx]
+
+        if trail < 0:
+            warnings.warn('Column {!r} ending point overlaps the next '
+                          'column.'.format(col_idx + 1))
+
+        # TODO: It would be nice if these string column formatting
+        # details were left to a specialized class, as is the case
+        # with FormatX and FormatP
+        if 'A' in format:
+            _pc = '{:'
+        else:
+            _pc = '{:>'
+
+        fmt = ''.join([_pc, format[1:], ASCII2STR[format[0]], '}',
+                       (' ' * trail)])
+
+        # Even if the format precision is 0, we should output a decimal point
+        # as long as there is space to do so--not including a decimal point in
+        # a float value is discouraged by the FITS Standard
+        trailing_decimal = (format.precision == 0 and
+                            format.format in ('F', 'E', 'D'))
+
+        # not using numarray.strings's num2char because the
+        # result is not allowed to expand (as C/Python does).
+        for jdx, value in enumerate(input_field):
+            value = fmt.format(value)
+            if len(value) > starts[col_idx + 1] - starts[col_idx]:
+                raise ValueError(
+                    "Value {!r} does not fit into the output's itemsize of "
+                    "{}.
+2025-05-15 03:44:12,756 - INFO - if not n:
+                # The input column had an empty array, so just use the fill
+                # value
+                continue
+
+            field = _get_recarray_field(data, idx)
+            name = column.name
+            fitsformat = column.format
+            recformat = fitsformat.recformat
+
+            outarr = field[:n]
+            inarr = arr[:n]
+
+            if isinstance(recformat, _FormatX):
+                # Data is a bit array
+                if inarr.shape[-1] == recformat.repeat:
+                    _wrapx(inarr, outarr, recformat.repeat)
+                    continue
+            elif isinstance(recformat, _FormatP):
+                data._cache_field(name, _makep(inarr, field, recformat,
+                                               nrows=nrows))
+                continue
+            # TODO: Find a better way of determining that the column is meant
+            # to be FITS L formatted
+            elif recformat[-2:] == FITS2NUMPY['L'] and inarr.dtype == bool:
+                # column is boolean
+                # The raw data field should be filled with either 'T' or 'F'
+                # (not 0).  Use 'F' as a default
+                field[:] = ord('F')
+                # Also save the original boolean array in data._converted so
+                # that it doesn't have to be re-converted
+                converted = np.zeros(field.shape, dtype=bool)
+                converted[:n] = inarr
+                data._cache_field(name, converted)
+                # TODO: Maybe this step isn't necessary at all if _scale_back
+                # will handle it?
+2025-05-15 03:44:12,756 - INFO - if isinstance(recformat, _FormatX):
+            # special handling for the X format
+            return self._convert_x(field, recformat)
+
+        (_str, _bool, _number, _scale, _zero, bscale, bzero, dim) = \
+            self._get_scale_factors(column)
+
+        indx = self.names.index(column.name)
+
+        # ASCII table, convert strings to numbers
+        # TODO:
+        # For now, check that these are ASCII columns by checking the coldefs
+        # type; in the future all columns (for binary tables, ASCII tables, or
+        # otherwise) should "know" what type they are already and how to handle
+        # converting their data from FITS format to native format and vice
+        # versa...
+        if not _str and isinstance(self._coldefs, _AsciiColDefs):
+            field = self._convert_ascii(column, field)
+
+        # Test that the dimensions given in dim are sensible; otherwise
+        # display a warning and ignore them
+        if dim:
+            # See if the dimensions already match, if not, make sure the
+            # number items will fit in the specified dimensions
+            if field.ndim > 1:
+                actual_shape = field.shape[1:]
+                if _str:
+                    actual_shape = actual_shape + (field.itemsize,)
+            else:
+                actual_shape = field.shape[0]
+
+            if dim == actual_shape:
+                # The array already has the correct dimensions, so we
+                # ignore dim and don't convert
+                dim = None
+            else:
+                nitems = reduce(operator.mul, dim)
+                if _str:
+                    actual_nitems = field.itemsize
+                elif len(field.shape) == 1:  # No repeat count in TFORMn, equivalent to 1
+                    actual_nitems = 1
+                else:
+                    actual_nitems = field.shape[1]
+                if nitems > actual_nitems:
+                    warnings.warn(
+                        'TDIM{} value {:d} does not fit with the size of '
+                        'the array items ({:d}).  TDIM{:d} will be ignored.'
+2025-05-15 03:44:12,756 - INFO - ".format(value, spans[col_idx]))
+
+            if trailing_decimal and value[0] == ' ':
+                # We have some extra space in the field for the trailing
+                # decimal point
+                value = value[1:] + '.'
+
+            output_field[jdx] = value
+
+        # Replace exponent separator in floating point numbers
+        if 'D' in format:
+            output_field.replace(encode_ascii('E'), encode_ascii('D'))
+
+
+def _get_recarray_field(array, key):
+    """
+    Compatibility function for using the recarray base class's field method.
+    This incorporates the legacy functionality of returning string arrays as
+    Numeric-style chararray objects.
+    """
+
+    # Numpy >= 1.10.dev recarray no longer returns chararrays for strings
+    # This is currently needed for backwards-compatibility and for
+    # automatic truncation of trailing whitespace
+    field = np.recarray.field(array, key)
+    if (field.dtype.char in ('S', 'U') and
+            not isinstance(field, chararray.chararray)):
+        field = field.view(chararray.chararray)
+    return field
+
+
+class _UnicodeArrayEncodeError(UnicodeEncodeError):
+    def __init__(self, encoding, object_, start, end, reason, index):
+        super().__init__(encoding, object_, start, end, reason)
+        self.index = index
+2025-05-15 03:44:12,756 - INFO - For example if recformat.dtype is 'a' we want
+                # an array of characters.
+                dtype = np.array([], dtype=recformat.dtype).dtype
+
+                if update_heap_pointers and name in self._converted:
+                    # The VLA has potentially been updated, so we need to
+                    # update the array descriptors
+                    raw_field[:] = 0  # reset
+                    npts = [len(arr) for arr in self._converted[name]]
+
+                    raw_field[:len(npts), 0] = npts
+                    raw_field[1:, 1] = (np.add.accumulate(raw_field[:-1, 0]) *
+                                        dtype.itemsize)
+                    raw_field[:, 1][:] += heapsize
+
+                heapsize += raw_field[:, 0].sum() * dtype.itemsize
+                # Even if this VLA has not been read or updated, we need to
+                # include the size of its constituent arrays in the heap size
+                # total
+
+            if isinstance(recformat, _FormatX) and name in self._converted:
+                _wrapx(self._converted[name], raw_field, recformat.repeat)
+                continue
+
+            _str, _bool, _number, _scale, _zero, bscale, bzero, _ = \
+                self._get_scale_factors(column)
+
+            field = self._converted.get(name, raw_field)
+
+            # conversion for both ASCII and binary tables
+            if _number or _str:
+                if _number and (_scale or _zero) and column._physical_values:
+                    dummy = field.copy()
+                    if _zero:
+                        dummy -= bzero
+                    if _scale:
+                        dummy /= bscale
+                    # This will set the raw values in the recarray back to
+                    # their non-physical storage values, so the column should
+                    # be mark is not scaled
+                    column._physical_values = False
+                elif _str or isinstance(self._coldefs, _AsciiColDefs):
+                    dummy = field
+                else:
+                    continue
+
+                # ASCII table, convert numbers to strings
+                if isinstance(self._coldefs, _AsciiColDefs):
+                    self.
+2025-05-15 03:44:12,756 - INFO - ================
+2025-05-15 03:44:12,756 - INFO - astropy/io/fits/column.py
+2025-05-15 03:44:12,756 - INFO - This is because the code in BinTableHDU
+        # (and a few other places) does essentially the following:
+        #
+        # data._coldefs = columns  # The ColDefs object holding this Column
+        # for col in columns:
+        #     col.array = data.field(col.name)
+        #
+        # This way each columns .array attribute now points to the field in the
+        # table data.  It's actually a pretty confusing interface (since it
+        # replaces the array originally pointed to by .array), but it's the way
+        # things have been for a long, long time.
+        #
+        # However, this results, in *many* cases, in a reference cycle.
+        # Because the array returned by data.field(col.name), while sometimes
+        # an array that owns its own data, is usually like a slice of the
+        # original data.  It has the original FITS_rec as the array .base.
+        # This results in the following reference cycle (for the n-th column):
+        #
+        #    data -> data._coldefs -> data._coldefs[n] ->
+        #     data._coldefs[n].array -> data._coldefs[n].array.base -> data
+        #
+        # Because ndarray objects do not handled by Python's garbage collector
+        # the reference cycle cannot be broken.  Therefore the FITS_rec's
+        # refcount never goes to zero, its __del__ is never called, and its
+        # memory is never freed.  This didn't occur in *all* cases, but it did
+        # occur in many cases.
+        #
+        # To get around this, Column.array is no longer a simple attribute
+        # like it was previously.
+2025-05-15 03:44:12,756 - INFO - inarr = np.where(inarr == np.False_, ord('F'), ord('T'))
+            elif (columns[idx]._physical_values and
+                    columns[idx]._pseudo_unsigned_ints):
+                # Temporary hack...
+                bzero = column.bzero
+                converted = np.zeros(field.shape, dtype=inarr.dtype)
+                converted[:n] = inarr
+                data._cache_field(name, converted)
+                if n < nrows:
+                    # Pre-scale rows below the input data
+                    field[n:] = -bzero
+
+                inarr = inarr - bzero
+            elif isinstance(columns, _AsciiColDefs):
+                # Regardless whether the format is character or numeric, if the
+                # input array contains characters then it's already in the raw
+                # format for ASCII tables
+                if fitsformat._pseudo_logical:
+                    # Hack to support converting from 8-bit T/F characters
+                    # Normally the column array is a chararray of 1 character
+                    # strings, but we need to view it as a normal ndarray of
+                    # 8-bit ints to fill it with ASCII codes for 'T' and 'F'
+                    outarr = field.view(np.uint8, np.ndarray)[:n]
+                elif arr.dtype.kind not in ('S', 'U'):
+                    # Set up views of numeric columns with the appropriate
+                    # numeric dtype
+                    # Fill with the appropriate blanks for the column format
+                    data._cache_field(name, np.zeros(nrows, dtype=arr.dtype))
+                    outarr = data._converted[name][:n]
+
+                outarr[:] = inarr
+                continue
+
+            if inarr.shape != outarr.shape:
+                if (inarr.dtype.kind == outarr.dtype.kind and
+                        inarr.dtype.kind in ('U', 'S') and
+                        inarr.dtype != outarr.dtype):
+
+                    inarr_rowsize = inarr[0].size
+                    inarr = inarr.flatten().view(outarr.dtype)
+
+                # This is a special case to handle input arrays with
+                # non-trivial TDIMn.
+2025-05-15 03:44:12,756 - INFO - # NOTE: The *column* index may not be the same as the field index in
+        # the recarray, if the column is a phantom column
+        column = self.columns[key]
+        name = column.name
+        format = column.format
+
+        if format.dtype.itemsize == 0:
+            warnings.warn(
+                'Field {!r} has a repeat count of 0 in its format code, '
+                'indicating an empty field.'.format(key))
+            return np.array([], dtype=format.dtype)
+
+        # If field's base is a FITS_rec, we can run into trouble because it
+        # contains a reference to the ._coldefs object of the original data;
+        # this can lead to a circular reference; see ticket #49
+        base = self
+        while (isinstance(base, FITS_rec) and
+                isinstance(base.base, np.recarray)):
+            base = base.base
+        # base could still be a FITS_rec in some cases, so take care to
+        # use rec.recarray.field to avoid a potential infinite
+        # recursion
+        field = _get_recarray_field(base, name)
+
+        if name not in self._converted:
+            recformat = format.recformat
+            # TODO: If we're now passing the column to these subroutines, do we
+            # really need to pass them the recformat?
+            if isinstance(recformat, _FormatP):
+                # for P format
+                converted = self._convert_p(column, field, recformat)
+            else:
+                # Handle all other column data types which are fixed-width
+                # fields
+                converted = self._convert_other(column, field, recformat)
+
+            # Note: Never assign values directly into the self._converted dict;
+            # always go through self._cache_field; this way self._converted is
+            # only used to store arrays that are not already direct views of
+            # our own data.
+            self._cache_field(name, converted)
+            return converted
+
+        return self._converted[name]
+
+    def _cache_field(self, name, field):
+        """
+        Do not store fields in _converted if one of its bases is self,
+        or if it has a common base with self.
+2025-05-15 03:44:12,756 - INFO - .format(indx + 1, self._coldefs[indx].dims,
+                                actual_nitems, indx + 1))
+                    dim = None
+
+        # further conversion for both ASCII and binary tables
+        # For now we've made columns responsible for *knowing* whether their
+        # data has been scaled, but we make the FITS_rec class responsible for
+        # actually doing the scaling
+        # TODO: This also needs to be fixed in the effort to make Columns
+        # responsible for scaling their arrays to/from FITS native values
+        if not column.ascii and column.format.p_format:
+            format_code = column.format.p_format
+        else:
+            # TODO: Rather than having this if/else it might be nice if the
+            # ColumnFormat class had an attribute guaranteed to give the format
+            # of actual values in a column regardless of whether the true
+            # format is something like P or Q
+            format_code = column.format.format
+
+        if (_number and (_scale or _zero) and not column._physical_values):
+            # This is to handle pseudo unsigned ints in table columns
+            # TODO: For now this only really works correctly for binary tables
+            # Should it work for ASCII tables as well?
+2025-05-15 03:44:12,756 - INFO - ================
+2025-05-15 03:44:12,756 - INFO - astropy/io/fits/util.py
+2025-05-15 03:44:12,756 - INFO - # This issue should have a workaround in Numpy too, but hasn't been
+    # implemented there yet: https://github.com/astropy/astropy/issues/839
+    #
+    # Apparently Windows has its own fwrite bug:
+    # https://github.com/numpy/numpy/issues/2256
+
+    if (sys.platform == 'darwin' and arr.nbytes >= _OSX_WRITE_LIMIT + 1 and
+            arr.nbytes % 4096 == 0):
+        # chunksize is a count of elements in the array, not bytes
+        chunksize = _OSX_WRITE_LIMIT // arr.itemsize
+    elif sys.platform.startswith('win'):
+        chunksize = _WIN_WRITE_LIMIT // arr.itemsize
+    else:
+        # Just pass the whole array to the write routine
+        return write(arr, outfile)
+
+    # Write one chunk at a time for systems whose fwrite chokes on large
+    # writes.
+    idx = 0
+    arr = arr.view(np.ndarray).flatten()
+    while idx < arr.nbytes:
+        write(arr[idx:idx + chunksize], outfile)
+        idx += chunksize
+2025-05-15 03:44:12,756 - INFO - _scale_back_ascii(indx, dummy, raw_field)
+                # binary table string column
+                elif isinstance(raw_field, chararray.chararray):
+                    self._scale_back_strings(indx, dummy, raw_field)
+                # all other binary table columns
+                else:
+                    if len(raw_field) and isinstance(raw_field[0],
+                                                     np.integer):
+                        dummy = np.around(dummy)
+
+                    if raw_field.shape == dummy.shape:
+                        raw_field[:] = dummy
+                    else:
+                        # Reshaping the data is necessary in cases where the
+                        # TDIMn keyword was used to shape a column's entries
+                        # into arrays
+                        raw_field[:] = dummy.ravel().view(raw_field.dtype)
+
+                del dummy
+
+            # ASCII table does not have Boolean type
+            elif _bool and name in self._converted:
+                choices = (np.array([ord('F')], dtype=np.int8)[0],
+                           np.array([ord('T')], dtype=np.int8)[0])
+                raw_field[:] = np.choose(field, choices)
+
+        # Store the updated heapsize
+        self._heapsize = heapsize
+
+    def _scale_back_strings(self, col_idx, input_field, output_field):
+        # There are a few possibilities this has to be able to handle properly
+        # The input_field, which comes from the _converted column is of dtype
+        # 'Un' so that elements read out of the array are normal str
+        # objects (i.e. unicode strings)
+        #
+        # At the other end the *output_field* may also be of type 'S' or of
+        # type 'U'.  It will *usually* be of type 'S' because when reading
+        # an existing FITS table the raw data is just ASCII strings, and
+        # represented in Numpy as an S array.  However, when a user creates
+        # a new table from scratch, they *might* pass in a column containing
+        # unicode strings (dtype 'U').  Therefore the output_field of the
+        # raw array is actually a unicode array.
+2025-05-15 03:44:12,756 - INFO - reconst_func, reconst_func_args, state = super().__reduce__()
+
+        # Define FITS_rec-specific attrs that get added to state
+        column_state = []
+        meta = []
+
+        for attrs in ['_converted', '_heapoffset', '_heapsize', '_nfields',
+                      '_gap', '_uint', 'parnames', '_coldefs']:
+
+            with suppress(AttributeError):
+                # _coldefs can be Delayed, and file objects cannot be
+                # picked, it needs to be deepcopied first
+                if attrs == '_coldefs':
+                    column_state.append(self._coldefs.__deepcopy__(None))
+                else:
+                    column_state.append(getattr(self, attrs))
+                meta.append(attrs)
+
+        state = state + (column_state, meta)
+
+        return reconst_func, reconst_func_args, state
+
+    def __array_finalize__(self, obj):
+        if obj is None:
+            return
+
+        if isinstance(obj, FITS_rec):
+            self._character_as_bytes = obj._character_as_bytes
+
+        if isinstance(obj, FITS_rec) and obj.dtype == self.dtype:
+            self._converted = obj._converted
+            self._heapoffset = obj._heapoffset
+            self._heapsize = obj._heapsize
+            self._col_weakrefs = obj._col_weakrefs
+            self._coldefs = obj._coldefs
+            self._nfields = obj._nfields
+            self._gap = obj._gap
+            self._uint = obj._uint
+        elif self.dtype.fields is not None:
+            # This will allow regular ndarrays with fields, rather than
+            # just other FITS_rec objects
+            self._nfields = len(self.dtype.fields)
+            self._converted = {}
+
+            self._heapoffset = getattr(obj, '_heapoffset', 0)
+            self._heapsize = getattr(obj, '_heapsize', 0)
+
+            self._gap = getattr(obj, '_gap', 0)
+            self._uint = getattr(obj, '_uint', False)
+            self._col_weakrefs = weakref.WeakSet()
+            self._coldefs = ColDefs(self)
+
+            # Work around chicken-egg problem.
+2025-05-15 03:44:12,756 - INFO - NUMPY2FITS['f2'] = 'E'
+
+# This is the order in which values are converted to FITS types
+# Note that only double precision floating point/complex are supported
+FORMATORDER = ['L', 'B', 'I', 'J', 'K', 'D', 'M', 'A']
+
+# Convert single precision floating point/complex to double precision.
+FITSUPCONVERTERS = {'E': 'D', 'C': 'M'}
+
+# mapping from ASCII table TFORM data type to numpy data type
+# A: Character
+# I: Integer (32-bit)
+# J: Integer (64-bit; non-standard)
+# F: Float (64-bit; fixed decimal notation)
+# E: Float (64-bit; exponential notation)
+# D: Float (64-bit; exponential notation, always 64-bit by convention)
+ASCII2NUMPY = {'A': 'a', 'I': 'i4', 'J': 'i8', 'F': 'f8', 'E': 'f8', 'D': 'f8'}
+
+# Maps FITS ASCII column format codes to the appropriate Python string
+# formatting codes for that type.
+ASCII2STR = {'A': '', 'I': 'd', 'J': 'd', 'F': 'f', 'E': 'E', 'D': 'E'}
+
+# For each ASCII table format code, provides a default width (and decimal
+# precision) for when one isn't given explicitly in the column format
+ASCII_DEFAULT_WIDTHS = {'A': (1, 0), 'I': (10, 0), 'J': (15, 0),
+                        'E': (15, 7), 'F': (16, 7), 'D': (25, 17)}
+2025-05-15 03:44:12,756 - INFO - We're
+        # just using them as a template, and returning a table filled with
+        # zeros/blanks
+        if fill:
+            return data
+
+        # Otherwise we have to fill the recarray with data from the input
+        # columns
+        for idx, column in enumerate(columns):
+            # For each column in the ColDef object, determine the number of
+            # rows in that column.  This will be either the number of rows in
+            # the ndarray associated with the column, or the number of rows
+            # given in the call to this function, which ever is smaller.  If
+            # the input FILL argument is true, the number of rows is set to
+            # zero so that no data is copied from the original input data.
+            arr = column.array
+
+            if arr is None:
+                array_size = 0
+            else:
+                array_size = len(arr)
+
+            n = min(array_size, nrows)
+
+            # TODO: At least *some* of this logic is mostly redundant with the
+            # _convert_foo methods in this class; see if we can eliminate some
+            # of that duplication.
+2025-05-15 03:44:12,756 - INFO - If it doesn't have a reasonable ASCII representation then
+        # raise an exception
+    else:
+        format, width, precision = _parse_ascii_tformat(format)
+
+        # This gives a sensible "default" dtype for a given ASCII
+        # format code
+        recformat = ASCII2NUMPY[format]
+
+        # The following logic is taken from CFITSIO:
+        # For integers, if the width <= 4 we can safely use 16-bit ints for all
+        # values [for the non-standard J format code just always force 64-bit]
+        if format == 'I' and width <= 4:
+            recformat = 'i2'
+        elif format == 'A':
+            recformat += str(width)
+
+        return recformat
+2025-05-15 03:44:12,756 - INFO - ================
+2025-05-15 03:44:12,756 - INFO - astropy/io/fits/_numpy_hacks.py
+2025-05-15 03:44:12,757 - INFO - cls, args, state = dtype.__reduce__()
+
+    names, fields = state[3:5]
+    fields = fields.copy()
+
+    itemsize = 0  # We will re-determine the itemsize based on the type
+                  # of the field with the largest (offset + itemsize)
+
+    if fields is None or len(offsets) != len(names):
+        raise ValueError(
+            "Dtype must be a structured dtype, and length of offsets list "
+            "must be the same as the number of fields.")
+
+    for name, offset in zip(names, offsets):
+        field = fields[name]
+        itemsize = max(itemsize, offset + field[0].itemsize)
+
+        if offset != field[1]:
+            fields[name] = (field[0], offset)
+
+    new_typespec = '|V{0}'.format(itemsize)
+
+    new_state = state[:4] + (fields, itemsize) + state[6:]
+
+    new_dtype = cls(new_typespec, *args[1:])
+    new_dtype.__setstate__(new_state)
+
+    return new_dtype
+2025-05-15 03:44:12,757 - INFO - ================
+2025-05-15 03:44:12,757 - INFO - astropy/io/fits/scripts/fitsdiff.py
+2025-05-15 03:44:12,757 - INFO - ',
+            AstropyDeprecationWarning)
+        opts.rtol = opts.tolerance
+    if opts.rtol is None:
+        opts.rtol = 0.0
+    if opts.atol is None:
+        opts.atol = 0.0
+
+    if opts.exact_comparisons:
+        # override the options so that each is the most restrictive
+        opts.ignore_keywords = []
+        opts.ignore_comments = []
+        opts.ignore_fields = []
+        opts.rtol = 0.0
+        opts.atol = 0.0
+        opts.ignore_blanks = False
+        opts.ignore_blank_cards = False
+
+    if not opts.quiet:
+        setup_logging(opts.output_file)
+    files = match_files(args)
+
+    close_file = False
+    if opts.quiet:
+        out_file = None
+    elif opts.output_file:
+        out_file = open(opts.output_file, 'w')
+        close_file = True
+    else:
+        out_file = sys.stdout
+
+    identical = []
+    try:
+        for a, b in files:
+            # TODO: pass in any additional arguments here too
+            diff = fits.diff.FITSDiff(
+                a, b,
+                ignore_keywords=opts.ignore_keywords,
+                ignore_comments=opts.ignore_comments,
+                ignore_fields=opts.ignore_fields,
+                numdiffs=opts.numdiffs,
+                rtol=opts.rtol,
+                atol=opts.atol,
+                ignore_blanks=opts.ignore_blanks,
+                ignore_blank_cards=opts.ignore_blank_cards)
+
+            diff.report(fileobj=out_file)
+            identical.append(diff.identical)
+
+        return int(not all(identical))
+    finally:
+        if close_file:
+            out_file.close()
+        # Close the file if used for the logging output, and remove handlers to
+        # avoid having them multiple times for unit tests.
+        for handler in log.handlers:
+            if isinstance(handler, logging.FileHandler):
+                handler.close()
+            log.removeHandler(handler)
+2025-05-15 03:44:12,757 - INFO - To avoid creating
+    # large temporary mask arrays, we loop over chunks (attempting to do that
+    # on a 1-D version of the array; large memory may still be needed in the
+    # unlikely case that a string array has small first dimension and cannot
+    # be represented as a contiguous 1-D array in memory).
+
+    dt = array.dtype
+
+    if dt.kind not in 'SU':
+        raise TypeError("This function can only be used on string arrays")
+    # View the array as appropriate integers. The last dimension will
+    # equal the number of characters in each string.
+    bpc = 1 if dt.kind == 'S' else 4
+    dt_int = "{0}{1}u{2}".format(dt.itemsize // bpc, dt.byteorder, bpc)
+    b = array.view(dt_int, np.ndarray)
+    # For optimal speed, work in chunks of the internal ufunc buffer size.
+    bufsize = np.getbufsize()
+    # Attempt to have the strings as a 1-D array to give the chunk known size.
+    # Note: the code will work if this fails; the chunks will just be larger.
+    if b.ndim > 2:
+        try:
+            b.shape = -1, b.shape[-1]
+        except AttributeError:  # can occur for non-contiguous arrays
+            pass
+    for j in range(0, b.shape[0], bufsize):
+        c = b[j:j + bufsize]
+        # Mask which will tell whether we're in a sequence of trailing spaces.
+2025-05-15 03:44:12,757 - INFO - format = column.format
+        recformat = ASCII2NUMPY[format[0]]
+        # if the string = TNULL, return ASCIITNULL
+        nullval = str(column.null).strip().encode('ascii')
+        if len(nullval) > format.width:
+            nullval = nullval[:format.width]
+
+        # Before using .replace make sure that any trailing bytes in each
+        # column are filled with spaces, and *not*, say, nulls; this causes
+        # functions like replace to potentially leave gibberish bytes in the
+        # array buffer.
+        dummy = np.char.ljust(field, format.width)
+        dummy = np.char.replace(dummy, encode_ascii('D'), encode_ascii('E'))
+        null_fill = encode_ascii(str(ASCIITNULL).rjust(format.width))
+
+        # Convert all fields equal to the TNULL value (nullval) to empty fields.
+        # TODO: These fields really should be conerted to NaN or something else undefined.
+        # Currently they are converted to empty fields, which are then set to zero.
+        dummy = np.where(np.char.strip(dummy) == nullval, null_fill, dummy)
+
+        # always replace empty fields, see https://github.com/astropy/astropy/pull/5394
+        if nullval != b'':
+            dummy = np.where(np.char.strip(dummy) == b'', null_fill, dummy)
+
+        try:
+            dummy = np.array(dummy, dtype=recformat)
+        except ValueError as exc:
+            indx = self.names.index(column.name)
+            raise ValueError(
+                '{}; the header may be missing the necessary TNULL{} '
+                'keyword or the table contains invalid data'.format(
+                    exc, indx + 1))
+
+        return dummy
+
+    def _convert_other(self, column, field, recformat):
+        """Perform conversions on any other fixed-width column data types.
+
+        This may not perform any conversion at all if it's not necessary, in
+        which case the original column array is returned.
+        """
+2025-05-15 03:44:12,757 - INFO - # By design each row of the outarray is 1-D, while each row of
+                # the input array may be n-D
+                if outarr.ndim > 1:
+                    # The normal case where the first dimension is the rows
+                    inarr_rowsize = inarr[0].size
+                    inarr = inarr.reshape(n, inarr_rowsize)
+                    outarr[:, :inarr_rowsize] = inarr
+                else:
+                    # Special case for strings where the out array only has one
+                    # dimension (the second dimension is rolled up into the
+                    # strings
+                    outarr[:n] = inarr.ravel()
+            else:
+                outarr[:] = inarr
+
+        # Now replace the original column array references with the new
+        # fields
+        # This is required to prevent the issue reported in
+        # https://github.com/spacetelescope/PyFITS/issues/99
+        for idx in range(len(columns)):
+            columns._arrays[idx] = data.field(idx)
+
+        return data
+
+    def __repr__(self):
+        # Force use of the normal ndarray repr (rather than the new
+        # one added for recarray in Numpy 1.10) for backwards compat
+        return np.ndarray.__repr__(self)
+
+    def __getitem__(self, key):
+        if self._coldefs is None:
+            return super().__getitem__(key)
+
+        if isinstance(key, str):
+            return self.field(key)
+
+        # Have to view as a recarray then back as a FITS_rec, otherwise the
+        # circular reference fix/hack in FITS_rec.field() won't preserve
+        # the slice.
+        out = self.view(np.recarray)[key]
+        if type(out) is not np.recarray:
+            # Oops, we got a single element rather than a view. In that case,
+            # return a Record, which has no __getstate__ and is more efficient.
+2025-05-15 03:44:12,757 - INFO - valid = {}
+        invalid = {}
+
+        format, recformat = cls._determine_formats(format, start, dim, ascii)
+        valid.update(format=format, recformat=recformat)
+
+        # Currently we don't have any validation for name, unit, bscale, or
+        # bzero so include those by default
+        # TODO: Add validation for these keywords, obviously
+        for k, v in [('name', name), ('unit', unit), ('bscale', bscale),
+                     ('bzero', bzero)]:
+            if v is not None and v != '':
+                valid[k] = v
+
+        # Validate null option
+        # Note: Enough code exists that thinks empty strings are sensible
+        # inputs for these options that we need to treat '' as None
+        if null is not None and null != '':
+            msg = None
+            if isinstance(format, _AsciiColumnFormat):
+                null = str(null)
+                if len(null) > format.width:
+                    msg = (
+                        "ASCII table null option (TNULLn) is longer than "
+                        "the column's character width and will be truncated "
+                        "(got {!r}).".format(null))
+            else:
+                tnull_formats = ('B', 'I', 'J', 'K')
+
+                if not _is_int(null):
+                    # Make this an exception instead of a warning, since any
+                    # non-int value is meaningless
+                    msg = (
+                        'Column null option (TNULLn) must be an integer for '
+                        'binary table columns (got {!r}).  The invalid value '
+                        'will be ignored for the purpose of formatting '
+                        'the data in this column.
+2025-05-15 03:44:12,757 - INFO - # TODO: This should be checked by the FITS verification code
+        if dim is not None and dim != '':
+            msg = None
+            dims_tuple = tuple()
+            # NOTE: If valid, the dim keyword's value in the the valid dict is
+            # a tuple, not the original string; if invalid just the original
+            # string is returned
+            if isinstance(format, _AsciiColumnFormat):
+                msg = (
+                    'Column dim option (TDIMn) is not allowed for ASCII table '
+                    'columns (got {!r}).  The invalid keyword will be ignored '
+                    'for the purpose of formatting this column.'.format(dim))
+
+            elif isinstance(dim, str):
+                dims_tuple = _parse_tdim(dim)
+            elif isinstance(dim, tuple):
+                dims_tuple = dim
+            else:
+                msg = (
+                    "`dim` argument must be a string containing a valid value "
+                    "for the TDIMn header keyword associated with this column, "
+                    "or a tuple containing the C-order dimensions for the "
+                    "column.  The invalid value will be ignored for the purpose "
+                    "of formatting this column.")
+
+            if dims_tuple:
+                if reduce(operator.mul, dims_tuple) > format.repeat:
+                    msg = (
+                        "The repeat count of the column format {!r} for column {!r} "
+                        "is fewer than the number of elements per the TDIM "
+                        "argument {!r}.  The invalid TDIMn value will be ignored "
+                        "for the purpose of formatting this column.
+2025-05-15 03:44:12,757 - INFO - recformat))
+            elif 'L' in format:
+                # boolean needs to be scaled back to storage values ('T', 'F')
+                if array.dtype == np.dtype('bool'):
+                    return np.where(array == np.False_, ord('F'), ord('T'))
+                else:
+                    return np.where(array == 0, ord('F'), ord('T'))
+            elif 'X' in format:
+                return _convert_array(array, np.dtype('uint8'))
+            else:
+                # Preserve byte order of the original array for now; see #77
+                numpy_format = array.dtype.byteorder + format.recformat
+
+                # Handle arrays passed in as unsigned ints as pseudo-unsigned
+                # int arrays; blatantly tacked in here for now--we need columns
+                # to have explicit knowledge of whether they treated as
+                # pseudo-unsigned
+                bzeros = {2: np.uint16(2**15), 4: np.uint32(2**31),
+                          8: np.uint64(2**63)}
+                if (array.dtype.kind == 'u' and
+                        array.dtype.itemsize in bzeros and
+                        self.bscale in (1, None, '') and
+                        self.bzero == bzeros[array.dtype.itemsize]):
+                    # Basically the array is uint, has scale == 1.0, and the
+                    # bzero is the appropriate value for a pseudo-unsigned
+                    # integer of the input dtype, then go ahead and assume that
+                    # uint is assumed
+                    numpy_format = numpy_format.replace('i', 'u')
+                    self._pseudo_unsigned_ints = True
+
+                # The .base here means we're dropping the shape information,
+2025-05-15 03:44:12,757 - INFO - If
+            `False`, copy the data from input, undefined cells will still
+            be filled with zeros/blanks.
+        """
+
+        if not isinstance(columns, ColDefs):
+            columns = ColDefs(columns)
+
+        # read the delayed data
+        for column in columns:
+            arr = column.array
+            if isinstance(arr, Delayed):
+                if arr.hdu.data is None:
+                    column.array = None
+                else:
+                    column.array = _get_recarray_field(arr.hdu.data,
+                                                       arr.field)
+        # Reset columns._arrays (which we may want to just do away with
+        # altogether
+        del columns._arrays
+
+        # use the largest column shape as the shape of the record
+        if nrows == 0:
+            for arr in columns._arrays:
+                if arr is not None:
+                    dim = arr.shape[0]
+                else:
+                    dim = 0
+                if dim > nrows:
+                    nrows = dim
+
+        raw_data = np.empty(columns.dtype.itemsize * nrows, dtype=np.uint8)
+        raw_data.fill(ord(columns._padding_byte))
+        data = np.recarray(nrows, dtype=columns.dtype, buf=raw_data).view(cls)
+        data._character_as_bytes = character_as_bytes
+
+        # Make sure the data is a listener for changes to the columns
+        columns._add_listener(data)
+
+        # Previously this assignment was made from hdu.columns, but that's a
+        # bug since if a _TableBaseHDU has a FITS_rec in its .data attribute
+        # the _TableBaseHDU.columns property is actually returned from
+        # .data._coldefs, so this assignment was circular!  Don't make that
+        # mistake again.
+        # All of this is an artifact of the fragility of the FITS_rec class,
+        # and that it can't just be initialized by columns...
+        data._coldefs = columns
+
+        # If fill is True we don't copy anything from the column arrays.
+2025-05-15 03:44:12,757 - INFO - return self._record_type(self, key)
+
+        # We got a view; change it back to our class, and add stuff
+        out = out.view(type(self))
+        out._coldefs = ColDefs(self._coldefs)
+        arrays = []
+        out._converted = {}
+        for idx, name in enumerate(self._coldefs.names):
+            #
+            # Store the new arrays for the _coldefs object
+            #
+            arrays.append(self._coldefs._arrays[idx][key])
+
+            # Ensure that the sliced FITS_rec will view the same scaled
+            # columns as the original; this is one of the few cases where
+            # it is not necessary to use _cache_field()
+            if name in self._converted:
+                dummy = self._converted[name]
+                field = np.ndarray.__getitem__(dummy, key)
+                out._converted[name] = field
+
+        out._coldefs._arrays = arrays
+        return out
+
+    def __setitem__(self, key, value):
+        if self._coldefs is None:
+            return super().__setitem__(key, value)
+
+        if isinstance(key, str):
+            self[key][:] = value
+            return
+
+        if isinstance(key, slice):
+            end = min(len(self), key.stop or len(self))
+            end = max(0, end)
+            start = max(0, key.start or 0)
+            end = min(end, start + len(value))
+
+            for idx in range(start, end):
+                self.__setitem__(idx, value[idx - start])
+            return
+
+        if isinstance(value, FITS_record):
+            for idx in range(self._nfields):
+                self.field(self.names[idx])[key] = value.field(self.names[idx])
+        elif isinstance(value, (tuple, list, np.void)):
+            if self._nfields == len(value):
+                for idx in range(self._nfields):
+                    self.field(idx)[key] = value[idx]
+            else:
+                raise ValueError('Input tuple or list required to have {} '
+                                 'elements.'.format(self._nfields))
+        else:
+            raise TypeError('Assignment requires a FITS_record, tuple, or '
+                            'list as input.')
+2025-05-15 03:44:12,757 - INFO - ================
+2025-05-15 03:44:12,757 - INFO - astropy/io/fits/card.py
+2025-05-15 03:44:12,757 - INFO - '.format(self.keyword))
+
+        # Don't try to verify cards that already don't meet any recognizable
+        # standard
+        if self._invalid:
+            return errs
+
+        # verify the equal sign position
+        if (self.keyword not in self._commentary_keywords and
+            (self._image and self._image[:9].upper() != 'HIERARCH ' and
+             self._image.find('=') != 8)):
+            errs.append(self.run_option(
+                option,
+                err_text='Card {!r} is not FITS standard (equal sign not '
+                         'at column 8).'.format(self.keyword),
+                fix_text=fix_text,
+                fix=self._fix_value))
+
+        # verify the key, it is never fixable
+        # always fix silently the case where "=" is before column 9,
+        # since there is no way to communicate back to the _keys.
+        if ((self._image and self._image[:8].upper() == 'HIERARCH') or
+                self._hierarch):
+            pass
+        else:
+            if self._image:
+                # PyFITS will auto-uppercase any standard keyword, so lowercase
+                # keywords can only occur if they came from the wild
+                keyword = self._split()[0]
+                if keyword != keyword.upper():
+                    # Keyword should be uppercase unless it's a HIERARCH card
+                    errs.append(self.run_option(
+                        option,
+                        err_text='Card keyword {!r} is not upper case.'.format(
+                                  keyword),
+                        fix_text=fix_text,
+                        fix=self._fix_keyword))
+
+            keyword = self.keyword
+            if self.field_specifier:
+                keyword = keyword.split('.
+2025-05-15 03:44:12,757 - INFO - *([deDE] *[+-]? *\d+)?'
+    _numr_FSC = r'[+-]?' + _digits_FSC
+    _numr_NFSC = r'[+-]? *' + _digits_NFSC
+
+    # This regex helps delete leading zeros from numbers, otherwise
+    # Python might evaluate them as octal values (this is not-greedy, however,
+    # so it may not strip leading zeros from a float, which is fine)
+    _number_FSC_RE = re.compile(r'(?P<sign>[+-])?0*?(?P<digt>{})'.format(
+            _digits_FSC))
+    _number_NFSC_RE = re.compile(r'(?P<sign>[+-])? *0*?(?P<digt>{})'.format(
+            _digits_NFSC))
+
+    # FSC commentary card string which must contain printable ASCII characters.
+    # Note: \Z matches the end of the string without allowing newlines
+    _ascii_text_re = re.compile(r'[ -~]*\Z')
+
+    # Checks for a valid value/comment string.  It returns a match object
+    # for a valid value/comment string.
+    # The valu group will return a match if a FITS string, boolean,
+    # number, or complex value is found, otherwise it will return
+    # None, meaning the keyword is undefined.  The comment field will
+    # return a match if the comment separator is found, though the
+    # comment maybe an empty string.
+    _value_FSC_RE = re.compile(
+        r'(?P<valu_field> *'
+            r'(?P<valu>'
+
+                #  The <strg> regex is not correct for all cases, but
+                #  it comes pretty darn close.  It appears to find the
+                #  end of a string rather well, but will accept
+                #  strings with an odd number of single quotes,
+                #  instead of issuing an error.  The FITS standard
+                #  appears vague on this issue and only states that a
+                #  string should not end with two single quotes,
+                #  whereas it should not end with an even number of
+                #  quotes to be precise.
+2025-05-15 03:44:12,757 - INFO - elif (isinstance(s, np.ndarray) and
+          issubclass(s.dtype.type, np.bytes_)):
+        # np.char.encode/decode annoyingly don't preserve the type of the
+        # array, hence the view() call
+        # It also doesn't necessarily preserve widths of the strings,
+        # hence the astype()
+        if s.size == 0:
+            # Numpy apparently also has a bug that if a string array is
+            # empty calling np.char.decode on it returns an empty float64
+            # array wth
+            dt = s.dtype.str.replace('S', 'U')
+            ns = np.array([], dtype=dt).view(type(s))
+        else:
+            ns = np.char.decode(s, 'ascii').view(type(s))
+        if ns.dtype.itemsize / 4 != s.dtype.itemsize:
+            ns = ns.astype((np.str_, s.dtype.itemsize))
+        return ns
+    elif (isinstance(s, np.ndarray) and
+          not issubclass(s.dtype.type, np.str_)):
+        # Don't silently pass through on non-string arrays; we don't want
+        # to hide errors where things that are not stringy are attempting
+        # to be decoded
+        raise TypeError('string operation on non-string array')
+    return s
+2025-05-15 03:44:12,757 - INFO - #
+                #  Note that a non-greedy match is done for a string,
+                #  since a greedy match will find a single-quote after
+                #  the comment separator resulting in an incorrect
+                #  match.
+                r'\'(?P<strg>([ -~]+?|\'\'|)) *?\'(?=$|/| )|'
+                r'(?P<bool>[FT])|'
+                r'(?P<numr>' + _numr_FSC + r')|'
+                r'(?P<cplx>\( *'
+                    r'(?P<real>' + _numr_FSC + r') *, *'
+                    r'(?P<imag>' + _numr_FSC + r') *\))'
+            r')? *)'
+        r'(?P<comm_field>'
+            r'(?P<sepr>/ *)'
+            r'(?P<comm>[!-~][ -~]*)?'
+        r')?$')
+
+    _value_NFSC_RE = re.compile(
+        r'(?P<valu_field> *'
+            r'(?P<valu>'
+                r'\'(?P<strg>([ -~]+?|\'\'|) *?)\'(?=$|/| )|'
+                r'(?P<bool>[FT])|'
+                r'(?P<numr>' + _numr_NFSC + r')|'
+                r'(?P<cplx>\( *'
+                    r'(?P<real>' + _numr_NFSC + r') *, *'
+                    r'(?P<imag>' + _numr_NFSC + r') *\))'
+            r')? *)'
+        r'(?P<comm_field>'
+            r'(?P<sepr>/ *)'
+            r'(?P<comm>(.|\n)*)'
+        r')?$')
+
+    _rvkc_identifier = r'[a-zA-Z_]\w*'
+    _rvkc_field = _rvkc_identifier + r'(\.\d+)?'
+    _rvkc_field_specifier_s = r'{}(\.
+2025-05-15 03:44:12,757 - INFO - if isfile(infile):
+
+        global CHUNKED_FROMFILE
+        if CHUNKED_FROMFILE is None:
+            if (sys.platform == 'darwin' and
+                    LooseVersion(platform.mac_ver()[0]) < LooseVersion('10.9')):
+                CHUNKED_FROMFILE = True
+            else:
+                CHUNKED_FROMFILE = False
+
+        if CHUNKED_FROMFILE:
+            chunk_size = int(1024 ** 3 / dtype.itemsize)  # 1Gb to be safe
+            if count < chunk_size:
+                return np.fromfile(infile, dtype=dtype, count=count)
+            else:
+                array = np.empty(count, dtype=dtype)
+                for beg in range(0, count, chunk_size):
+                    end = min(count, beg + chunk_size)
+                    array[beg:end] = np.fromfile(infile, dtype=dtype, count=end - beg)
+                return array
+        else:
+            return np.fromfile(infile, dtype=dtype, count=count)
+    else:
+        # treat as file-like object with "read" method; this includes gzip file
+        # objects, because numpy.fromfile just reads the compressed bytes from
+        # their underlying file object, instead of the decompressed bytes
+        read_size = np.dtype(dtype).itemsize * count
+        s = infile.read(read_size)
+        array = np.frombuffer(s, dtype=dtype, count=count)
+        # copy is needed because np.frombuffer returns a read-only view of the
+        # underlying buffer
+        array = array.copy()
+        return array
+2025-05-15 03:44:12,757 - INFO - ".format(coord_unit))
+
+            if msg is None:
+                valid['coord_unit'] = coord_unit
+            else:
+                invalid['coord_unit'] = (coord_unit, msg)
+
+        for k, v in [('coord_ref_point', coord_ref_point),
+                     ('coord_ref_value', coord_ref_value),
+                     ('coord_inc', coord_inc)]:
+            if v is not None and v != '':
+                msg = None
+                if not isinstance(v, numbers.Real):
+                    msg = (
+                        "Column {} option ({}n) must be a real floating type (got {!r}). "
+                        "The invalid value will be ignored for the purpose of formatting "
+                        "the data in this column.".format(k, ATTRIBUTE_TO_KEYWORD[k], v))
+
+                if msg is None:
+                    valid[k] = v
+                else:
+                    invalid[k] = (v, msg)
+
+        if time_ref_pos is not None and time_ref_pos != '':
+            msg=None
+            if not isinstance(time_ref_pos, str):
+                msg = (
+                    "Time coordinate reference position option (TRPOSn) must be "
+                    "a string (got {!r}). The invalid keyword will be ignored for "
+                    "the purpose of formatting this column.
+2025-05-15 03:44:12,757 - INFO - ================
+2025-05-15 03:44:12,757 - INFO - astropy/io/fits/hdu/base.py
+2025-05-15 03:44:12,757 - INFO - data.dtype)):
+            for keyword in ('BSCALE', 'BZERO'):
+                with suppress(KeyError):
+                    del self._header[keyword]
+
+    def _writeheader(self, fileobj):
+        offset = 0
+        if not fileobj.simulateonly:
+            with suppress(AttributeError, OSError):
+                offset = fileobj.tell()
+
+            self._header.tofile(fileobj)
+
+            try:
+                size = fileobj.tell() - offset
+            except (AttributeError, OSError):
+                size = len(str(self._header))
+        else:
+            size = len(str(self._header))
+
+        return offset, size
+
+    def _writedata(self, fileobj):
+        # TODO: A lot of the simulateonly stuff should be moved back into the
+        # _File class--basically it should turn write and flush into a noop
+        offset = 0
+        size = 0
+
+        if not fileobj.simulateonly:
+            fileobj.flush()
+            try:
+                offset = fileobj.tell()
+            except OSError:
+                offset = 0
+
+        if self._data_loaded or self._data_needs_rescale:
+            if self.data is not None:
+                size += self._writedata_internal(fileobj)
+            # pad the FITS data block
+            if size > 0:
+                padding = _pad_length(size) * self._padding_byte
+                # TODO: Not that this is ever likely, but if for some odd
+                # reason _padding_byte is > 0x80 this will fail; but really if
+                # somebody's custom fits format is doing that, they're doing it
+                # wrong and should be reprimanded harshly.
+2025-05-15 03:44:12,757 - INFO - ================
+2025-05-15 03:44:12,757 - INFO - astropy/io/fits/hdu/table.py
+2025-05-15 03:44:12,757 - INFO - # TODO: I need to read this code a little more closely
+                    # again, but I think it can be simplified quite a bit with
+                    # the use of some appropriate utility functions
+                    update_coldefs = {}
+                    if 'u' in [data.dtype[k].kind for k in data.dtype.names]:
+                        self._uint = True
+                        bzeros = {2: np.uint16(2**15), 4: np.uint32(2**31),
+                                  8: np.uint64(2**63)}
+
+                        new_dtype = [
+                            (k, data.dtype[k].kind.replace('u', 'i') +
+                            str(data.dtype[k].itemsize))
+                            for k in data.dtype.names]
+
+                        new_data = np.zeros(data.shape, dtype=new_dtype)
+
+                        for k in data.dtype.fields:
+                            dtype = data.dtype[k]
+                            if dtype.kind == 'u':
+                                new_data[k] = data[k] - bzeros[dtype.itemsize]
+                                update_coldefs[k] = bzeros[dtype.itemsize]
+                            else:
+                                new_data[k] = data[k]
+                        self.data = new_data.view(self._data_type)
+                        # Uck...
+                        self.data._uint = True
+                    else:
+                        self.data = data.view(self._data_type)
+                    for k in update_coldefs:
+                        indx = _get_index(self.data.names, k)
+                        self.data._coldefs[indx].bzero = update_coldefs[k]
+                        # This is so bad that we have to update this in
+                        # duplicate...
+                        self.data._coldefs.bzeros[indx] = update_coldefs[k]
+                        # More uck...
+                        self.data._coldefs[indx]._physical_values = False
+                        self.data._coldefs[indx]._pseudo_unsigned_ints = True
+
+                # TODO: Too much of the code in this class uses header keywords
+                # in making calculations related to the data size.  This is
+                # unreliable, however, in cases when users mess with the header
+                # unintentionally--code that does this should be cleaned up.
+2025-05-15 03:44:12,757 - INFO - if reverse:
+        recformat, kind, dtype = _dtype_to_recformat(format)
+        itemsize = dtype.itemsize
+
+        if kind == 'a':
+            return 'A' + str(itemsize)
+        elif NUMPY2FITS.get(recformat) == 'L':
+            # Special case for logical/boolean types--for ASCII tables we
+            # represent these as single character columns containing 'T' or 'F'
+            # (a la the storage format for Logical columns in binary tables)
+            return 'A1'
+        elif kind == 'i':
+            # Use for the width the maximum required to represent integers
+            # of that byte size plus 1 for signs, but use a minimum of the
+            # default width (to keep with existing behavior)
+            width = 1 + len(str(2 ** (itemsize * 8)))
+            width = max(width, ASCII_DEFAULT_WIDTHS['I'][0])
+            return 'I' + str(width)
+        elif kind == 'f':
+            # This is tricky, but go ahead and use D if float-64, and E
+            # if float-32 with their default widths
+            if itemsize >= 8:
+                format = 'D'
+            else:
+                format = 'E'
+            width = '.'.join(str(w) for w in ASCII_DEFAULT_WIDTHS[format])
+            return format + width
+        # TODO: There may be reasonable ways to represent other Numpy types so
+        # let's see what other possibilities there are besides just 'a', 'i',
+        # and 'f'.
+2025-05-15 03:44:12,757 - INFO - # mapping from TFORM data type to numpy data type (code)
+# L: Logical (Boolean)
+# B: Unsigned Byte
+# I: 16-bit Integer
+# J: 32-bit Integer
+# K: 64-bit Integer
+# E: Single-precision Floating Point
+# D: Double-precision Floating Point
+# C: Single-precision Complex
+# M: Double-precision Complex
+# A: Character
+FITS2NUMPY = {'L': 'i1', 'B': 'u1', 'I': 'i2', 'J': 'i4', 'K': 'i8', 'E': 'f4',
+              'D': 'f8', 'C': 'c8', 'M': 'c16', 'A': 'a'}
+
+# the inverse dictionary of the above
+NUMPY2FITS = {val: key for key, val in FITS2NUMPY.items()}
+# Normally booleans are represented as ints in Astropy, but if passed in a numpy
+# boolean array, that should be supported
+NUMPY2FITS['b1'] = 'L'
+# Add unsigned types, which will be stored as signed ints with a TZERO card.
+NUMPY2FITS['u2'] = 'I'
+NUMPY2FITS['u4'] = 'J'
+NUMPY2FITS['u8'] = 'K'
+# Add half precision floating point numbers which will be up-converted to
+# single precision.
+2025-05-15 03:44:12,757 - INFO - ================
+2025-05-15 03:44:12,757 - INFO - astropy/io/fits/diff.py
+2025-05-15 03:44:12,757 - INFO - self.ignore_keywords = {k.upper() for k in ignore_keywords}
+        self.ignore_comments = {k.upper() for k in ignore_comments}
+
+        self.rtol = rtol
+        self.atol = atol
+
+        if tolerance is not None:  # This should be removed in the next astropy version
+            warnings.warn(
+                '"tolerance" was deprecated in version 2.0 and will be removed in '
+                'a future version. Use argument "rtol" instead.
+2025-05-15 03:44:12,757 - INFO - if msg is None:
+                valid['disp'] = disp
+            else:
+                invalid['disp'] = (disp, msg)
+
+        # Validate the start option
+        if start is not None and start != '':
+            msg = None
+            if not isinstance(format, _AsciiColumnFormat):
+                # The 'start' option only applies to ASCII columns
+                msg = (
+                    'Column start option (TBCOLn) is not allowed for binary '
+                    'table columns (got {!r}).  The invalid keyword will be '
+                    'ignored for the purpose of formatting the data in this '
+                    'column.'.format(start))
+            else:
+                try:
+                    start = int(start)
+                except (TypeError, ValueError):
+                    pass
+
+                if not _is_int(start) or start < 1:
+                    msg = (
+                        'Column start option (TBCOLn) must be a positive integer '
+                        '(got {!r}).  The invalid value will be ignored for the '
+                        'purpose of formatting the data in this column.'.format(start))
+
+            if msg is None:
+                valid['start'] = start
+            else:
+                invalid['start'] = (start, msg)
+
+        # Process TDIMn options
+        # ASCII table columns can't have a TDIMn keyword associated with it;
+        # for now we just issue a warning and ignore it.
+2025-05-15 03:44:12,757 - INFO - Now each Column has a ._parent_fits_rec
+        # attribute which is a weakref to a FITS_rec object.  Code that
+        # previously assigned each col.array to field in a FITS_rec (as in
+        # the example a few paragraphs above) is still used, however now
+        # array.setter checks if a reference cycle will be created.  And if
+        # so, instead of saving directly to the Column's __dict__, it creates
+        # the ._prent_fits_rec weakref, and all lookups of the column's .array
+        # go through that instead.
+        #
+        # This alone does not fully solve the problem.  Because
+        # _parent_fits_rec is a weakref, if the user ever holds a reference to
+        # the Column, but deletes all references to the underlying FITS_rec,
+        # the .array attribute would suddenly start returning None instead of
+        # the array data.  This problem is resolved on FITS_rec's end.  See the
+        # note in the FITS_rec._coldefs property for the rest of the story.
+
+        # If the Columns's array is not a reference to an existing FITS_rec,
+        # then it is just stored in self.__dict__; otherwise check the
+        # _parent_fits_rec reference if it 's still available.
+2025-05-15 03:44:12,757 - INFO - But we still want to make
+        # sure the data is encodable as ASCII.  Later when we write out the
+        # array we use, in the dtype 'U' case, a different write routine
+        # that writes row by row and encodes any 'U' columns to ASCII.
+
+        # If the output_field is non-ASCII we will worry about ASCII encoding
+        # later when writing; otherwise we can do it right here
+        if input_field.dtype.kind == 'U' and output_field.dtype.kind == 'S':
+            try:
+                _ascii_encode(input_field, out=output_field)
+            except _UnicodeArrayEncodeError as exc:
+                raise ValueError(
+                    "Could not save column '{0}': Contains characters that "
+                    "cannot be encoded as ASCII as required by FITS, starting "
+                    "at the index {1!r} of the column, and the index {2} of "
+                    "the string at that location.".format(
+                        self._coldefs[col_idx].name,
+                        exc.index[0] if len(exc.index) == 1 else exc.index,
+                        exc.start))
+        else:
+            # Otherwise go ahead and do a direct copy into--if both are type
+            # 'U' we'll handle encoding later
+            input_field = input_field.flatten().view(output_field.dtype)
+            output_field.flat[:] = input_field
+
+        # Ensure that blanks at the end of each string are
+        # converted to nulls instead of spaces, see Trac #15
+        # and #111
+        _rstrip_inplace(output_field)
+
+    def _scale_back_ascii(self, col_idx, input_field, output_field):
+        """
+        Convert internal array values back to ASCII table representation.
+
+        The ``input_field`` is the internal representation of the values, and
+        the ``output_field`` is the character array representing the ASCII
+        output that will be written.
+        """
+2025-05-15 03:44:12,757 - INFO - recformat = cls._convert_format(format, guess_format)
+        except VerifyError:
+            # For whatever reason our guess was wrong (for example if we got
+            # just 'F' that's not a valid binary format, but it an ASCII format
+            # code albeit with the width/precision omitted
+            guess_format = (_AsciiColumnFormat
+                            if guess_format is _ColumnFormat
+                            else _ColumnFormat)
+            # If this fails too we're out of options--it is truly an invalid
+            # format, or at least not supported
+            format, recformat = cls._convert_format(format, guess_format)
+
+        return format, recformat
+
+    def _convert_to_valid_data_type(self, array):
+        # Convert the format to a type we understand
+        if isinstance(array, Delayed):
+            return array
+        elif array is None:
+            return array
+        else:
+            format = self.format
+            dims = self._dims
+
+            if dims:
+                shape = dims[:-1] if 'A' in format else dims
+                shape = (len(array),) + shape
+                array = array.reshape(shape)
+
+            if 'P' in format or 'Q' in format:
+                return array
+            elif 'A' in format:
+                if array.dtype.char in 'SU':
+                    if dims:
+                        # The 'last' dimension (first in the order given
+                        # in the TDIMn keyword itself) is the number of
+                        # characters in each string
+                        fsize = dims[-1]
+                    else:
+                        fsize = np.dtype(format.recformat).itemsize
+                    return chararray.array(array, itemsize=fsize, copy=False)
+                else:
+                    return _convert_array(array, np.dtype(format.
+2025-05-15 03:44:12,757 - INFO - ================
+2025-05-15 03:44:12,757 - INFO - astropy/io/fits/hdu/hdulist.py
+2025-05-15 03:44:12,757 - INFO - \n{}\n'
+                    'There may be extra bytes after the last HDU or the '
+                    'file is corrupted.'.format(
+                        len(self), indent(str(exc))), VerifyWarning)
+                del exc
+                self._read_all = True
+                return False
+        finally:
+            compressed.COMPRESSION_ENABLED = saved_compression_enabled
+            self._in_read_next_hdu = False
+
+        return True
+
+    def _verify(self, option='warn'):
+        errs = _ErrList([], unit='HDU')
+
+        # the first (0th) element must be a primary HDU
+        if len(self) > 0 and (not isinstance(self[0], PrimaryHDU)) and \
+                             (not isinstance(self[0], _NonstandardHDU)):
+            err_text = "HDUList's 0th element is not a primary HDU."
+            fix_text = 'Fixed by inserting one as 0th HDU.'
+
+            def fix(self=self):
+                self.insert(0, PrimaryHDU())
+
+            err = self.run_option(option, err_text=err_text,
+                                  fix_text=fix_text, fix=fix)
+            errs.append(err)
+
+        if len(self) > 1 and ('EXTEND' not in self[0].header or
+                              self[0].header['EXTEND'] is not True):
+            err_text = ('Primary HDU does not contain an EXTEND keyword '
+                        'equal to T even though there are extension HDUs.')
+            fix_text = 'Fixed by inserting or updating the EXTEND keyword.'
+
+            def fix(header=self[0].header):
+                naxis = header['NAXIS']
+                if naxis == 0:
+                    after = 'NAXIS'
+                else:
+                    after = 'NAXIS' + str(naxis)
+                header.set('EXTEND', value=True, after=after)
+
+            errs.append(self.run_option(option, err_text=err_text,
+                                        fix_text=fix_text, fix=fix))
+
+        # each element calls their own verify
+        for idx, hdu in enumerate(self):
+            if idx > 0 and (not isinstance(hdu, ExtensionHDU)):
+                err_text = ("HDUList's element {} is not an "
+                            "extension HDU.
+2025-05-15 03:44:12,757 - INFO - else:
+                width = 0 if width is None else width
+                precision = 1 if precision is None else precision
+    else:
+        format = format.upper()
+        width = match.group('width')
+        if width is None:
+            if strict:
+                raise VerifyError('Format {!r} is not unambiguously an ASCII '
+                                  'table format.')
+            else:
+                # Just use a default width of 0 if unspecified
+                width = 0
+        precision = 0
+
+    def convert_int(val):
+        msg = ('Format {!r} is not valid--field width and decimal precision '
+               'must be integers.')
+        try:
+            val = int(val)
+        except (ValueError, TypeError):
+            raise VerifyError(msg.format(tform))
+
+        return val
+
+    if width and precision:
+        # This should only be the case for floating-point formats
+        width, precision = convert_int(width), convert_int(precision)
+    elif width:
+        # Just for integer/string formats; ignore precision
+        width = convert_int(width)
+    else:
+        # For any format, if width was unspecified use the set defaults
+        width, precision = ASCII_DEFAULT_WIDTHS[format]
+
+    if width <= 0:
+        raise VerifyError("Format {!r} not valid--field width must be a "
+                          "positive integeter.".format(tform))
+
+    if precision >= width:
+        raise VerifyError("Format {!r} not valid--the number of decimal digits "
+                          "must be less than the format's total "
+                          "width {}.".format(tform, width))
+
+    return format, width, precision
+2025-05-15 03:44:12,757 - INFO - ================
+2025-05-15 03:44:12,757 - INFO - astropy/io/fits/file.py
+2025-05-15 03:44:12,757 - INFO - itemsize != 0:
+            raise ValueError('size {} not a multiple of {}'.format(size, dtype))
+
+        if isinstance(shape, int):
+            shape = (shape,)
+
+        if not (size or shape):
+            warnings.warn('No size or shape given to readarray(); assuming a '
+                          'shape of (1,)', AstropyUserWarning)
+            shape = (1,)
+
+        if size and not shape:
+            shape = (size // dtype.itemsize,)
+
+        if size and shape:
+            actualsize = np.prod(shape) * dtype.itemsize
+
+            if actualsize > size:
+                raise ValueError('size {} is too few bytes for a {} array of '
+                                 '{}'.format(size, shape, dtype))
+            elif actualsize < size:
+                raise ValueError('size {} is too many bytes for a {} array of '
+                                 '{}'.format(size, shape, dtype))
+
+        filepos = self._file.tell()
+
+        try:
+            if self.memmap:
+                if self._mmap is None:
+                    # Instantiate Memmap array of the file offset at 0 (so we
+                    # can return slices of it to offset anywhere else into the
+                    # file)
+                    memmap = Memmap(self._file, mode=MEMMAP_MODES[self.mode],
+                                    dtype=np.uint8)
+
+                    # Now we immediately discard the memmap array; we are
+                    # really just using it as a factory function to instantiate
+                    # the mmap object in a convenient way (may later do away
+                    # with this usage)
+                    self._mmap = memmap.base
+
+                    # Prevent dorking with self._memmap._mmap by memmap.__del__
+                    # in Numpy 1.6 (see
+                    # https://github.com/numpy/numpy/commit/dcc355a0b179387eeba10c95baf2e1eb21d417c7)
+                    memmap._mmap = None
+                    del memmap
+
+                return np.ndarray(shape=shape, dtype=dtype, offset=offset,
+                                  buffer=self._mmap)
+            else:
+                count = reduce(operator.mul, shape)
+                self._file.seek(offset)
+                data = _array_from_file(self._file, dtype,
+2025-05-15 03:44:12,757 - INFO - i = field.dtype.str.index(field.dtype.kind)
+                    field_width = int(field.dtype.str[i+1:])
+                    item = np.char.encode(item, 'ascii')
+
+                fileobj.writearray(item)
+                if field_width is not None:
+                    j = item.dtype.str.index(item.dtype.kind)
+                    item_length = int(item.dtype.str[j+1:])
+                    # Fix padding problem (see #5296).
+                    padding = '\x00'*(field_width - item_length)
+                    fileobj.write(padding.encode('ascii'))
+
+    _tdump_file_format = textwrap.dedent("""
+
+        - **datafile:** Each line of the data file represents one row of table
+          data.  The data is output one column at a time in column order.  If
+          a column contains an array, each element of the column array in the
+          current row is output before moving on to the next column.  Each row
+          ends with a new line.
+
+          Integer data is output right-justified in a 21-character field
+          followed by a blank.  Floating point data is output right justified
+          using 'g' format in a 21-character field with 15 digits of
+          precision, followed by a blank.  String data that does not contain
+          whitespace is output left-justified in a field whose width matches
+          the width specified in the ``TFORM`` header parameter for the
+          column, followed by a blank.  When the string data contains
+          whitespace characters, the string is enclosed in quotation marks
+          (``""``).  For the last data element in a row, the trailing blank in
+          the field is replaced by a new line character.
+
+          For column data containing variable length arrays ('P' format), the
+          array data is preceded by the string ``'VLA_Length= '`` and the
+          integer length of the array for that row, left-justified in a
+          21-character field, followed by a blank.
+
+          .. note::
+
+              This format does *not* support variable length arrays using the
+              ('Q' format) due to difficult to overcome ambiguities.
+2025-05-15 03:44:12,757 - INFO - This results in a reference cycle that cannot be broken since
+        ndarrays do not participate in cyclic garbage collection.
+        """
+
+        base = field
+        while True:
+            self_base = self
+            while True:
+                if self_base is base:
+                    return
+
+                if getattr(self_base, 'base', None) is not None:
+                    self_base = self_base.base
+                else:
+                    break
+
+            if getattr(base, 'base', None) is not None:
+                base = base.base
+            else:
+                break
+
+        self._converted[name] = field
+
+    def _update_column_attribute_changed(self, column, idx, attr, old_value,
+                                         new_value):
+        """
+        Update how the data is formatted depending on changes to column
+        attributes initiated by the user through the `Column` interface.
+
+        Dispatches column attribute change notifications to individual methods
+        for each attribute ``_update_column_<attr>``
+        """
+
+        method_name = '_update_column_{0}'.format(attr)
+        if hasattr(self, method_name):
+            # Right now this is so we can be lazy and not implement updaters
+            # for every attribute yet--some we may not need at all, TBD
+            getattr(self, method_name)(column, idx, old_value, new_value)
+
+    def _update_column_name(self, column, idx, old_name, name):
+        """Update the dtype field names when a column name is changed."""
+
+        dtype = self.dtype
+        # Updating the names on the dtype should suffice
+        dtype.names = dtype.names[:idx] + (name,) + dtype.names[idx + 1:]
+
+    def _convert_x(self, field, recformat):
+        """Convert a raw table column to a bit array as specified by the
+        FITS X format.
+        """
+
+        dummy = np.zeros(self.shape + (recformat.repeat,), dtype=np.bool_)
+        _unwrapx(field, dummy, recformat.repeat)
+        return dummy
+
+    def _convert_p(self, column, field, recformat):
+        """Convert a raw table column of FITS P or Q format descriptors
+        to a VLA column with the array data returned from the heap.
+        """
+2025-05-15 03:44:12,757 - INFO - def _format_float(value):
+    """Format a floating number to make sure it gets the decimal point."""
+
+    value_str = '{:.16G}'.format(value)
+    if '.' not in value_str and 'E' not in value_str:
+        value_str += '.0'
+    elif 'E' in value_str:
+        # On some Windows builds of Python (and possibly other platforms?) the
+        # exponent is zero-padded out to, it seems, three digits.  Normalize
+        # the format to pad only to two digits.
+        significand, exponent = value_str.split('E')
+        if exponent[0] in ('+', '-'):
+            sign = exponent[0]
+            exponent = exponent[1:]
+        else:
+            sign = ''
+        value_str = '{}E{}{:02d}'.format(significand, sign, int(exponent))
+
+    # Limit the value string to at most 20 characters.
+    str_len = len(value_str)
+
+    if str_len > 20:
+        idx = value_str.find('E')
+
+        if idx < 0:
+            value_str = value_str[:20]
+        else:
+            value_str = value_str[:20 - (str_len - idx)] + value_str[idx:]
+
+    return value_str
+
+
+def _pad(input):
+    """Pad blank space to the input string to be multiple of 80."""
+
+    _len = len(input)
+    if _len == Card.length:
+        return input
+    elif _len > Card.length:
+        strlen = _len % Card.length
+        if strlen == 0:
+            return input
+        else:
+            return input + ' ' * (Card.length - strlen)
+
+    # minimum length is 80
+    else:
+        strlen = _len % Card.length
+        return input + ' ' * (Card.length - strlen)
+2025-05-15 03:44:12,757 - INFO - orig_dtype = data.dtype
+
+    names = []
+    formats = []
+    offsets = []
+
+    to_swap = []
+
+    if sys.byteorder == 'little':
+        swap_types = ('<', '=')
+    else:
+        swap_types = ('<',)
+
+    for idx, name in enumerate(orig_dtype.names):
+        field = _get_recarray_field(data, idx)
+
+        field_dtype, field_offset = orig_dtype.fields[name]
+        names.append(name)
+        formats.append(field_dtype)
+        offsets.append(field_offset)
+
+        if isinstance(field, chararray.chararray):
+            continue
+
+        # only swap unswapped
+        # must use field_dtype.base here since for multi-element dtypes,
+        # the .str with be '|V<N>' where <N> is the total bytes per element
+        if field.itemsize > 1 and field_dtype.base.str[0] in swap_types:
+            to_swap.append(field)
+            # Override the dtype for this field in the new record dtype with
+            # the byteswapped version
+            formats[-1] = field_dtype.newbyteorder()
+
+        # deal with var length table
+        recformat = data.columns._recformats[idx]
+        if isinstance(recformat, _FormatP):
+            coldata = data.field(idx)
+            for c in coldata:
+                if (not isinstance(c, chararray.chararray) and
+                        c.itemsize > 1 and c.dtype.str[0] in swap_types):
+                    to_swap.append(c)
+
+    for arr in reversed(to_swap):
+        arr.byteswap(True)
+
+    new_dtype = nh.realign_dtype(np.dtype(list(zip(names, formats))),
+                                 offsets)
+
+    data.dtype = new_dtype
+
+    yield data
+
+    for arr in to_swap:
+        arr.byteswap(True)
+
+    data.dtype = orig_dtype
+2025-05-15 03:44:12,757 - INFO - if self.field_specifier:
+            return float(self._value)
+
+        if self._value is not None:
+            value = self._value
+        elif self._valuestring is not None or self._image:
+            self._value = self._parse_value()
+            value = self._value
+        else:
+            self._value = value = ''
+
+        if conf.strip_header_whitespace and isinstance(value, str):
+            value = value.rstrip()
+
+        return value
+
+    @value.setter
+    def value(self, value):
+        if self._invalid:
+            raise ValueError(
+                'The value of invalid/unparseable cards cannot set.  Either '
+                'delete this card from the header or replace it.')
+
+        if value is None:
+            value = ''
+        oldvalue = self._value
+        if oldvalue is None:
+            oldvalue = ''
+
+        if not isinstance(value,
+                          (str, int, float, complex, bool, Undefined,
+                           np.floating, np.integer, np.complexfloating,
+                           np.bool_)):
+            raise ValueError('Illegal value: {!r}.'.format(value))
+
+        if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+            raise ValueError("Floating point {!r} values are not allowed "
+                             "in FITS headers.".format(value))
+
+        elif isinstance(value, str):
+            m = self._ascii_text_re.match(value)
+            if not m:
+                raise ValueError(
+                    'FITS header values must contain standard printable ASCII '
+                    'characters; {!r} contains characters not representable in '
+                    'ASCII or non-printable characters.'.format(value))
+        elif isinstance(value, bytes):
+            # Allow str, but only if they can be decoded to ASCII text; note
+            # this is not even allowed on Python 3 since the `bytes` type is
+            # not included in `str`.
+2025-05-15 03:44:12,757 - INFO - if self._image is not None:
+            # If we already have a card image, don't try to rebuild a new card
+            # image, which self.image would do
+            image = self._image
+        else:
+            image = self.image
+
+        if self.keyword in self._commentary_keywords.union(['CONTINUE']):
+            keyword, valuecomment = image.split(' ', 1)
+        else:
+            try:
+                delim_index = image.index(self._value_indicator)
+            except ValueError:
+                delim_index = None
+
+            # The equal sign may not be any higher than column 10; anything
+            # past that must be considered part of the card value
+            if delim_index is None:
+                keyword = image[:KEYWORD_LENGTH]
+                valuecomment = image[KEYWORD_LENGTH:]
+            elif delim_index > 10 and image[:9] != 'HIERARCH ':
+                keyword = image[:8]
+                valuecomment = image[8:]
+            else:
+                keyword, valuecomment = image.split(self._value_indicator, 1)
+        return keyword.strip(), valuecomment.strip()
+
+    def _fix_keyword(self):
+        if self.field_specifier:
+            keyword, field_specifier = self._keyword.split('.', 1)
+            self._keyword = '.'.join([keyword.upper(), field_specifier])
+        else:
+            self._keyword = self._keyword.upper()
+        self._modified = True
+
+    def _fix_value(self):
+        """Fix the card image for fixable non-standard compliance."""
+2025-05-15 03:44:12,757 - INFO - def handle_options(argv=None):
+    # This is a callback--less trouble than actually adding a new action type
+    def store_list(option, opt, value, parser):
+        setattr(parser.values, option.dest, [])
+        # Accept either a comma-separated list or a filename (starting with @)
+        # containing a value on each line
+        if value and value[0] == '@':
+            value = value[1:]
+            if not os.path.exists(value):
+                log.warning('{} argument {} does not exist'.format(opt, value))
+                return
+            try:
+                values = [v.strip() for v in open(value, 'r').readlines()]
+                setattr(parser.values, option.dest, values)
+            except OSError as exc:
+                log.warning('reading {} for {} failed: {}; ignoring this '
+                            'argument'.format(value, opt, exc))
+                del exc
+        else:
+            setattr(parser.values, option.dest,
+                    [v.strip() for v in value.split(',')])
+
+    parser = optparse.OptionParser(usage=USAGE, epilog=EPILOG,
+                                   formatter=HelpFormatter())
+
+    parser.add_option(
+        '-q', '--quiet', action='store_true',
+        help='Produce no output and just return a status code.')
+
+    parser.add_option(
+        '-n', '--num-diffs', type='int', default=10, dest='numdiffs',
+        metavar='INTEGER',
+        help='Max number of data differences (image pixel or table element) '
+             'to report per extension (default %default).')
+
+    parser.add_option(
+        '-d', '--difference-tolerance', type='float', default=None,
+        dest='tolerance', metavar='NUMBER',
+        help='DEPRECATED. Alias for "--relative-tolerance". '
+             'Deprecated, provided for backward compatibility (default %default).')
+
+    parser.add_option(
+        '-r', '--rtol', '--relative-tolerance', type='float', default=None,
+        dest='rtol', metavar='NUMBER',
+        help='The relative tolerance for comparison of two numbers, '
+             'specifically two floating point numbers.  This applies to data '
+             'in both images and tables, and to floating point keyword values '
+             'in headers (default %default).')
+2025-05-15 03:44:12,757 - INFO - ================
+2025-05-15 03:44:12,757 - INFO - astropy/io/fits/verify.py
+2025-05-15 03:44:12,757 - INFO - '.format(option))
+
+        if opt == 'ignore':
+            return
+
+        errs = self._verify(opt)
+
+        # Break the verify option into separate options related to reporting of
+        # errors, and fixing of fixable errors
+        if '+' in opt:
+            fix_opt, report_opt = opt.split('+')
+        elif opt in ['fix', 'silentfix']:
+            # The original default behavior for 'fix' and 'silentfix' was to
+            # raise an exception for unfixable errors
+            fix_opt, report_opt = opt, 'exception'
+        else:
+            fix_opt, report_opt = None, opt
+
+        if fix_opt == 'silentfix' and report_opt == 'ignore':
+            # Fixable errors were fixed, but don't report anything
+            return
+
+        if fix_opt == 'silentfix':
+            # Don't print out fixable issues; the first element of each verify
+            # item is a boolean indicating whether or not the issue was fixable
+            line_filter = lambda x: not x[0]
+        elif fix_opt == 'fix' and report_opt == 'ignore':
+            # Don't print *unfixable* issues, but do print fixed issues; this
+            # is probably not very useful but the option exists for
+            # completeness
+            line_filter = operator.itemgetter(0)
+        else:
+            line_filter = None
+
+        unfixable = False
+        messages = []
+        for fixable, message in errs.iter_lines(filter=line_filter):
+            if fixable is not None:
+                unfixable = not fixable
+            messages.append(message)
+
+        if messages:
+            messages.insert(0, 'Verification reported errors:')
+            messages.append('Note: astropy.io.fits uses zero-based indexing.\n')
+
+            if fix_opt == 'silentfix' and not unfixable:
+                return
+            elif report_opt == 'warn' or (fix_opt == 'fix' and not unfixable):
+                for line in messages:
+                    warnings.warn(line, VerifyWarning)
+            else:
+                raise VerifyError('\n' + '\n'.join(messages))
+2025-05-15 03:44:12,757 - INFO - EPILOG = """
+If the two files are identical within the specified conditions, it will report
+"No difference is found." If the value(s) of -c and -k takes the form
+'@filename', list is in the text file 'filename', and each line in that text
+file contains one keyword.
+
+Example
+-------
+
+    fitsdiff -k filename,filtnam1 -n 5 -r 1.e-6 test1.fits test2
+
+This command will compare files test1.fits and test2.fits, report maximum of 5
+different pixels values per extension, only report data values larger than
+1.e-6 relative to each other, and will neglect the different values of keywords
+FILENAME and FILTNAM1 (or their very existence).
+
+fitsdiff command-line arguments can also be set using the environment variable
+FITSDIFF_SETTINGS.  If the FITSDIFF_SETTINGS environment variable is present,
+each argument present will override the corresponding argument on the
+command-line unless the --exact option is specified.  The FITSDIFF_SETTINGS
+environment variable exists to make it easier to change the
+behavior of fitsdiff on a global level, such as in a set of regression tests.
+""".strip()
+
+
+class HelpFormatter(optparse.TitledHelpFormatter):
+    def format_epilog(self, epilog):
+        return '\n{}\n'.format(fill(epilog, self.width))
+2025-05-15 03:44:12,757 - INFO - mask = np.ones(c.shape[:-1], dtype=bool)
+        # Loop over the characters in the strings, in reverse order. We process
+        # the i-th character of all strings in the chunk at the same time. If
+        # the character is 32, this corresponds to a space, and we then change
+        # this to 0. We then construct a new mask to find rows where the
+        # i-th character is 0 (null) and the i-1-th is 32 (space) and repeat.
+        for i in range(-1, -c.shape[-1], -1):
+            mask &= c[..., i] == 32
+            c[..., i][mask] = 0
+            mask = c[..., i] == 0
+
+    return array
+2025-05-15 03:44:12,757 - INFO - value = None
+        keyword, valuecomment = self._split()
+        m = self._value_NFSC_RE.match(valuecomment)
+
+        # for the unparsable case
+        if m is None:
+            try:
+                value, comment = valuecomment.split('/', 1)
+                self.value = value.strip()
+                self.comment = comment.strip()
+            except (ValueError, IndexError):
+                self.value = valuecomment
+            self._valuestring = self._value
+            return
+        elif m.group('numr') is not None:
+            numr = self._number_NFSC_RE.match(m.group('numr'))
+            value = translate(numr.group('digt'), FIX_FP_TABLE, ' ')
+            if numr.group('sign') is not None:
+                value = numr.group('sign') + value
+
+        elif m.group('cplx') is not None:
+            real = self._number_NFSC_RE.match(m.group('real'))
+            rdigt = translate(real.group('digt'), FIX_FP_TABLE, ' ')
+            if real.group('sign') is not None:
+                rdigt = real.group('sign') + rdigt
+
+            imag = self._number_NFSC_RE.match(m.group('imag'))
+            idigt = translate(imag.group('digt'), FIX_FP_TABLE, ' ')
+            if imag.group('sign') is not None:
+                idigt = imag.group('sign') + idigt
+            value = '({}, {})'.format(rdigt, idigt)
+        self._valuestring = value
+        # The value itself has not been modified, but its serialized
+        # representation (as stored in self._valuestring) has been changed, so
+        # still set this card as having been modified (see ticket #137)
+        self._modified = True
+
+    def _format_keyword(self):
+        if self.keyword:
+            if self.field_specifier:
+                return '{:{len}}'.format(self.keyword.split('.', 1)[0],
+                                         len=KEYWORD_LENGTH)
+            elif self._hierarch:
+                return 'HIERARCH {} '.format(self.keyword)
+            else:
+                return '{:{len}}'.format(self.keyword,
+2025-05-15 03:44:12,758 - INFO - dummy = _VLF([None] * len(self), dtype=recformat.dtype)
+        raw_data = self._get_raw_data()
+
+        if raw_data is None:
+            raise OSError(
+                "Could not find heap data for the {!r} variable-length "
+                "array column.".format(column.name))
+
+        for idx in range(len(self)):
+            offset = field[idx, 1] + self._heapoffset
+            count = field[idx, 0]
+
+            if recformat.dtype == 'a':
+                dt = np.dtype(recformat.dtype + str(1))
+                arr_len = count * dt.itemsize
+                da = raw_data[offset:offset + arr_len].view(dt)
+                da = np.char.array(da.view(dtype=dt), itemsize=count)
+                dummy[idx] = decode_ascii(da)
+            else:
+                dt = np.dtype(recformat.dtype)
+                arr_len = count * dt.itemsize
+                dummy[idx] = raw_data[offset:offset + arr_len].view(dt)
+                dummy[idx].dtype = dummy[idx].dtype.newbyteorder('>')
+                # Each array in the field may now require additional
+                # scaling depending on the other scaling parameters
+                # TODO: The same scaling parameters apply to every
+                # array in the column so this is currently very slow; we
+                # really only need to check once whether any scaling will
+                # be necessary and skip this step if not
+                # TODO: Test that this works for X format; I don't think
+                # that it does--the recformat variable only applies to the P
+                # format not the X format
+                dummy[idx] = self._convert_other(column, dummy[idx],
+                                                 recformat)
+
+        return dummy
+
+    def _convert_ascii(self, column, field):
+        """
+        Special handling for ASCII table columns to convert columns containing
+        numeric types to actual numeric arrays from the string representation.
+        """
+2025-05-15 03:44:12,758 - INFO - if 'array' in self.__dict__:
+            return self.__dict__['array']
+        elif self._parent_fits_rec is not None:
+            parent = self._parent_fits_rec()
+            if parent is not None:
+                return parent[self.name]
+        else:
+            return None
+
+    @array.setter
+    def array(self, array):
+        # The following looks over the bases of the given array to check if it
+        # has a ._coldefs attribute (i.e. is a FITS_rec) and that that _coldefs
+        # contains this Column itself, and would create a reference cycle if we
+        # stored the array directly in self.__dict__.
+        # In this case it instead sets up the _parent_fits_rec weakref to the
+        # underlying FITS_rec, so that array.getter can return arrays through
+        # self._parent_fits_rec().field(self.name), rather than storing a
+        # hard reference to the field like it used to.
+        base = array
+        while True:
+            if (hasattr(base, '_coldefs') and
+                    isinstance(base._coldefs, ColDefs)):
+                for col in base._coldefs:
+                    if col is self and self._parent_fits_rec is None:
+                        self._parent_fits_rec = weakref.ref(base)
+
+                        # Just in case the user already set .array to their own
+                        # array.
+2025-05-15 03:44:12,758 - INFO - ',
+                AstropyDeprecationWarning)
+            self.rtol = tolerance  # when tolerance is provided *always* ignore `rtol`
+                                   # during the transition/deprecation period
+
+        self.ignore_blanks = ignore_blanks
+        self.ignore_blank_cards = ignore_blank_cards
+
+        self.ignore_keyword_patterns = set()
+        self.ignore_comment_patterns = set()
+        for keyword in list(self.ignore_keywords):
+            keyword = keyword.upper()
+            if keyword != '*' and glob.has_magic(keyword):
+                self.ignore_keywords.remove(keyword)
+                self.ignore_keyword_patterns.add(keyword)
+        for keyword in list(self.ignore_comments):
+            keyword = keyword.upper()
+            if keyword != '*' and glob.has_magic(keyword):
+                self.ignore_comments.remove(keyword)
+                self.ignore_comment_patterns.add(keyword)
+
+        # Keywords appearing in each header
+        self.common_keywords = []
+
+        # Set to the number of keywords in each header if the counts differ
+        self.diff_keyword_count = ()
+
+        # Set if the keywords common to each header (excluding ignore_keywords)
+        # appear in different positions within the header
+        # TODO: Implement this
+        self.diff_keyword_positions = ()
+
+        # Keywords unique to each header (excluding keywords in
+        # ignore_keywords)
+        self.diff_keywords = ()
+
+        # Keywords that have different numbers of duplicates in each header
+        # (excluding keywords in ignore_keywords)
+        self.diff_duplicate_keywords = {}
+
+        # Keywords common to each header but having different values (excluding
+        # keywords in ignore_keywords)
+        self.diff_keyword_values = defaultdict(list)
+
+        # Keywords common to each header but having different comments
+        # (excluding keywords in ignore_keywords or in ignore_comments)
+        self.diff_keyword_comments = defaultdict(list)
+
+        if isinstance(a, str):
+            a = Header.fromstring(a)
+        if isinstance(b, str):
+            b = Header.fromstring(b)
+
+        if not (isinstance(a, Header) and isinstance(b, Header)):
+            raise TypeError('HeaderDiff can only diff astropy.io.fits.Header '
+                            'objects or strings containing FITS headers.')
+2025-05-15 03:44:12,758 - INFO - ================
+2025-05-15 03:44:12,758 - INFO - astropy/io/fits/convenience.py
+2025-05-15 03:44:12,758 - INFO - err_msg = ('Redundant/conflicting extension arguments(s): {}'.format(
+            {'args': args, 'ext': ext, 'extname': extname,
+             'extver': extver}))
+
+    # This code would be much simpler if just one way of specifying an
+    # extension were picked.  But now we need to support all possible ways for
+    # the time being.
+    if len(args) == 1:
+        # Must be either an extension number, an extension name, or an
+        # (extname, extver) tuple
+        if _is_int(args[0]) or (isinstance(ext, tuple) and len(ext) == 2):
+            if ext is not None or extname is not None or extver is not None:
+                raise TypeError(err_msg)
+            ext = args[0]
+        elif isinstance(args[0], str):
+            # The first arg is an extension name; it could still be valid
+            # to provide an extver kwarg
+            if ext is not None or extname is not None:
+                raise TypeError(err_msg)
+            extname = args[0]
+        else:
+            # Take whatever we have as the ext argument; we'll validate it
+            # below
+            ext = args[0]
+    elif len(args) == 2:
+        # Must be an extname and extver
+        if ext is not None or extname is not None or extver is not None:
+            raise TypeError(err_msg)
+        extname = args[0]
+        extver = args[1]
+    elif len(args) > 2:
+        raise TypeError('Too many positional arguments.')
+
+    if (ext is not None and
+            not (_is_int(ext) or
+                 (isinstance(ext, tuple) and len(ext) == 2 and
+                  isinstance(ext[0], str) and _is_int(ext[1])))):
+        raise ValueError(
+            'The ext keyword must be either an extension number '
+            '(zero-indexed) or a (extname, extver) tuple.')
+2025-05-15 03:44:12,758 - INFO - ".format(
+                            name, format, dim))
+
+            if msg is None:
+                valid['dim'] = dims_tuple
+            else:
+                invalid['dim'] = (dim, msg)
+
+        if coord_type is not None and coord_type != '':
+            msg = None
+            if not isinstance(coord_type, str):
+                msg = (
+                    "Coordinate/axis type option (TCTYPn) must be a string "
+                    "(got {!r}). The invalid keyword will be ignored for the "
+                    "purpose of formatting this column.".format(coord_type))
+            elif len(coord_type) > 8:
+                msg = (
+                    "Coordinate/axis type option (TCTYPn) must be a string "
+                    "of atmost 8 characters (got {!r}). The invalid keyword "
+                    "will be ignored for the purpose of formatting this "
+                    "column.".format(coord_type))
+
+            if msg is None:
+                valid['coord_type'] = coord_type
+            else:
+                invalid['coord_type'] = (coord_type, msg)
+
+        if coord_unit is not None and coord_unit != '':
+            msg = None
+            if not isinstance(coord_unit, str):
+                msg = (
+                    "Coordinate/axis unit option (TCUNIn) must be a string "
+                    "(got {!r}). The invalid keyword will be ignored for the "
+                    "purpose of formatting this column.
+2025-05-15 03:44:12,758 - INFO - '.format(null))
+
+                elif not (format.format in tnull_formats or
+                          (format.format in ('P', 'Q') and
+                           format.p_format in tnull_formats)):
+                    # TODO: We should also check that TNULLn's integer value
+                    # is in the range allowed by the column's format
+                    msg = (
+                        'Column null option (TNULLn) is invalid for binary '
+                        'table columns of type {!r} (got {!r}).  The invalid '
+                        'value will be ignored for the purpose of formatting '
+                        'the data in this column.'.format(format, null))
+
+            if msg is None:
+                valid['null'] = null
+            else:
+                invalid['null'] = (null, msg)
+
+        # Validate the disp option
+        # TODO: Add full parsing and validation of TDISPn keywords
+        if disp is not None and disp != '':
+            msg = None
+            if not isinstance(disp, str):
+                msg = (
+                    'Column disp option (TDISPn) must be a string (got {!r}).'
+                    'The invalid value will be ignored for the purpose of '
+                    'formatting the data in this column.'.format(disp))
+
+            elif (isinstance(format, _AsciiColumnFormat) and
+                    disp[0].upper() == 'L'):
+                # disp is at least one character long and has the 'L' format
+                # which is not recognized for ASCII tables
+                msg = (
+                    "Column disp option (TDISPn) may not use the 'L' format "
+                    "with ASCII table columns.  The invalid value will be "
+                    "ignored for the purpose of formatting the data in this "
+                    "column.")
+2025-05-15 03:44:12,758 - INFO - # Licensed under a 3-clause BSD style license - see PYFITS.rst
+
+import copy
+import operator
+import re
+import sys
+import warnings
+import weakref
+import numbers
+
+from functools import reduce
+from collections import OrderedDict
+from contextlib import suppress
+
+import numpy as np
+from numpy import char as chararray
+
+from . import _numpy_hacks as nh
+from .card import Card, CARD_LENGTH
+from .util import (pairwise, _is_int, _convert_array, encode_ascii, cmp,
+                   NotifierMixin)
+from .verify import VerifyError, VerifyWarning
+
+from ...utils import lazyproperty, isiterable, indent
+
+__all__ = ['Column', 'ColDefs', 'Delayed']
+2025-05-15 03:44:12,758 - INFO - # any of the input argument (except array) can be a Card or just
+        # a number/string
+        kwargs = {'ascii': ascii}
+        for attr in KEYWORD_ATTRIBUTES:
+            value = locals()[attr]  # get the argument's value
+
+            if isinstance(value, Card):
+                value = value.value
+
+            kwargs[attr] = value
+
+        valid_kwargs, invalid_kwargs = self._verify_keywords(**kwargs)
+
+        if invalid_kwargs:
+            msg = ['The following keyword arguments to Column were invalid:']
+
+            for val in invalid_kwargs.values():
+                msg.append(indent(val[1]))
+
+            raise VerifyError('\n'.join(msg))
+
+        for attr in KEYWORD_ATTRIBUTES:
+            setattr(self, attr, valid_kwargs.get(attr))
+
+        # TODO: Try to eliminate the following two special cases
+        # for recformat and dim:
+        # This is not actually stored as an attribute on columns for some
+        # reason
+        recformat = valid_kwargs['recformat']
+
+        # The 'dim' keyword's original value is stored in self.dim, while
+        # *only* the tuple form is stored in self._dims.
+        self._dims = self.dim
+        self.dim = dim
+
+        # Awful hack to use for now to keep track of whether the column holds
+        # pseudo-unsigned int data
+        self._pseudo_unsigned_ints = False
+
+        # if the column data is not ndarray, make it to be one, i.e.
+        # input arrays can be just list or tuple, not required to be ndarray
+        # does not include Object array because there is no guarantee
+        # the elements in the object array are consistent.
+2025-05-15 03:44:12,758 - INFO - recformat) < 0:
+                    recformats[idx] = recformat
+
+        # TODO: The handling of VLAs could probably be simplified a bit
+        for row in linereader:
+            nrows += 1
+            if coldefs is not None:
+                continue
+            col = 0
+            idx = 0
+            while idx < len(row):
+                if row[idx] == 'VLA_Length=':
+                    if col < len(vla_lengths):
+                        vla_length = vla_lengths[col]
+                    else:
+                        vla_length = int(row[idx + 1])
+                        vla_lengths.append(vla_length)
+                    idx += 2
+                    while vla_length:
+                        update_recformats(row[idx], col)
+                        vla_length -= 1
+                        idx += 1
+                    col += 1
+                else:
+                    if col >= len(vla_lengths):
+                        vla_lengths.append(None)
+                    update_recformats(row[idx], col)
+                    col += 1
+                    idx += 1
+
+        # Update the recformats for any VLAs
+        for idx, length in enumerate(vla_lengths):
+            if length is not None:
+                recformats[idx] = str(length) + recformats[idx]
+
+        dtype = np.rec.format_parser(recformats, names, None).dtype
+
+        # TODO: In the future maybe enable loading a bit at a time so that we
+        # can convert from this format to an actual FITS file on disk without
+        # needing enough physical memory to hold the entire thing at once
+        hdu = BinTableHDU.from_columns(np.recarray(shape=1, dtype=dtype),
+                                       nrows=nrows, fill=True)
+
+        # TODO: It seems to me a lot of this could/should be handled from
+        # within the FITS_rec class rather than here.
+2025-05-15 03:44:12,758 - INFO - ================
+2025-05-15 03:44:12,758 - INFO - astropy/io/fits/hdu/image.py
+2025-05-15 03:44:12,758 - INFO - if self.data is None:
+            return
+
+        # Determine the destination (numpy) data type
+        if type is None:
+            type = BITPIX2DTYPE[self._bitpix]
+        _type = getattr(np, type)
+
+        # Determine how to scale the data
+        # bscale and bzero takes priority
+        if bscale is not None and bzero is not None:
+            _scale = bscale
+            _zero = bzero
+        elif bscale is not None:
+            _scale = bscale
+            _zero = 0
+        elif bzero is not None:
+            _scale = 1
+            _zero = bzero
+        elif (option == 'old' and self._orig_bscale is not None and
+                self._orig_bzero is not None):
+            _scale = self._orig_bscale
+            _zero = self._orig_bzero
+        elif option == 'minmax' and not issubclass(_type, np.floating):
+            min = np.minimum.reduce(self.data.flat)
+            max = np.maximum.reduce(self.data.flat)
+
+            if _type == np.uint8:  # uint8 case
+                _zero = min
+                _scale = (max - min) / (2.0 ** 8 - 1)
+            else:
+                _zero = (max + min) / 2.0
+
+                # throw away -2^N
+                nbytes = 8 * _type().itemsize
+                _scale = (max - min) / (2.0 ** nbytes - 2)
+        else:
+            _scale = 1
+            _zero = 0
+
+        # Do the scaling
+        if _zero != 0:
+            # 0.9.6.3 to avoid out of range error for BZERO = +32768
+            # We have to explcitly cast _zero to prevent numpy from raising an
+            # error when doing self.data -= zero, and we do this instead of
+            # self.data = self.data - zero to avoid doubling memory usage.
+2025-05-15 03:44:12,758 - INFO - if isinstance(self, ExtensionHDU):
+            firstkey = 'XTENSION'
+            firstval = self._extension
+        else:
+            firstkey = 'SIMPLE'
+            firstval = True
+
+        self.req_cards(firstkey, 0, None, firstval, option, errs)
+        self.req_cards('BITPIX', 1, lambda v: (_is_int(v) and is_valid(v)), 8,
+                       option, errs)
+        self.req_cards('NAXIS', 2,
+                       lambda v: (_is_int(v) and 0 <= v <= 999), 0,
+                       option, errs)
+
+        naxis = self._header.get('NAXIS', 0)
+        if naxis < 1000:
+            for ax in range(3, naxis + 3):
+                key = 'NAXIS' + str(ax - 2)
+                self.req_cards(key, ax,
+                               lambda v: (_is_int(v) and v >= 0),
+                               _extract_number(self._header[key], default=1),
+                               option, errs)
+
+            # Remove NAXISj cards where j is not in range 1, naxis inclusive.
+            for keyword in self._header:
+                if keyword.startswith('NAXIS') and len(keyword) > 5:
+                    try:
+                        number = int(keyword[5:])
+                        if number <= 0 or number > naxis:
+                            raise ValueError
+                    except ValueError:
+                        err_text = ("NAXISj keyword out of range ('{}' when "
+                                    "NAXIS == {})".format(keyword, naxis))
+
+                        def fix(self=self, keyword=keyword):
+                            del self._header[keyword]
+
+                        errs.append(
+                            self.run_option(option=option, err_text=err_text,
+                                            fix=fix, fix_text="Deleted."))
+2025-05-15 03:44:12,758 - INFO - ================
+2025-05-15 03:44:12,758 - INFO - astropy/io/fits/scripts/fitscheck.py
+2025-05-15 03:44:12,758 - INFO - def verify_checksums(filename):
+    """
+    Prints a message if any HDU in `filename` has a bad checksum or datasum.
+    """
+
+    with catch_warnings() as wlist:
+        with fits.open(filename, checksum=OPTIONS.checksum_kind) as hdulist:
+            for i, hdu in enumerate(hdulist):
+                # looping on HDUs is needed to read them and verify the
+                # checksums
+                if not OPTIONS.ignore_missing:
+                    if not hdu._checksum:
+                        log.warning('MISSING {!r} .. Checksum not found '
+                                    'in HDU #{}'.format(filename, i))
+                        return 1
+                    if not hdu._datasum:
+                        log.warning('MISSING {!r} .. Datasum not found '
+                                    'in HDU #{}'.format(filename, i))
+                        return 1
+
+    for w in wlist:
+        if str(w.message).startswith(('Checksum verification failed',
+                                      'Datasum verification failed')):
+            log.warning('BAD %r %s', filename, str(w.message))
+            return 1
+
+    log.info('OK {!r}'.format(filename))
+    return 0
+
+
+def verify_compliance(filename):
+    """Check for FITS standard compliance."""
+
+    with fits.open(filename) as hdulist:
+        try:
+            hdulist.verify('exception')
+        except fits.VerifyError as exc:
+            log.warning('NONCOMPLIANT %r .. %s',
+                        filename, str(exc).replace('\n', ' '))
+            return 1
+    return 0
+
+
+def update(filename):
+    """
+    Sets the ``CHECKSUM`` and ``DATASUM`` keywords for each HDU of `filename`.
+
+    Also updates fixes standards violations if possible and requested.
+    """
+
+    output_verify = 'silentfix' if OPTIONS.compliance else 'ignore'
+    with fits.open(filename, do_not_scale_image_data=True,
+                   checksum=OPTIONS.checksum_kind, mode='update') as hdulist:
+        hdulist.flush(output_verify=output_verify)
+2025-05-15 03:44:12,758 - INFO - self.ignore_keywords = {k.upper() for k in ignore_keywords}
+        self.ignore_comments = {k.upper() for k in ignore_comments}
+        self.ignore_fields = {k.upper() for k in ignore_fields}
+
+        self.rtol = rtol
+        self.atol = atol
+
+        if tolerance is not None:  # This should be removed in the next astropy version
+            warnings.warn(
+                '"tolerance" was deprecated in version 2.0 and will be removed in '
+                'a future version. Use argument "rtol" instead.',
+                AstropyDeprecationWarning)
+            self.rtol = tolerance  # when tolerance is provided *always* ignore `rtol`
+                                   # during the transition/deprecation period
+
+        self.numdiffs = numdiffs
+        self.ignore_blanks = ignore_blanks
+
+        self.diff_extnames = ()
+        self.diff_extvers = ()
+        self.diff_extlevels = ()
+        self.diff_extension_types = ()
+        self.diff_headers = None
+        self.diff_data = None
+
+        super().__init__(a, b)
+
+    def _diff(self):
+        if self.a.name != self.b.name:
+            self.diff_extnames = (self.a.name, self.b.name)
+
+        if self.a.ver != self.b.ver:
+            self.diff_extvers = (self.a.ver, self.b.ver)
+
+        if self.a.level != self.b.level:
+            self.diff_extlevels = (self.a.level, self.b.level)
+
+        if self.a.header.get('XTENSION') != self.b.header.get('XTENSION'):
+            self.diff_extension_types = (self.a.header.get('XTENSION'),
+                                         self.b.header.get('XTENSION'))
+
+        self.diff_headers = HeaderDiff.fromdiff(self, self.a.header.copy(),
+                                                self.b.header.copy())
+
+        if self.a.
+2025-05-15 03:44:12,758 - INFO - ================
+2025-05-15 03:44:12,758 - INFO - astropy/io/fits/hdu/groups.py
+2025-05-15 03:44:12,758 - INFO - size = 0
+
+        if self.data is not None:
+            self.data._scale_back()
+
+            # Based on the system type, determine the byteorders that
+            # would need to be swapped to get to big-endian output
+            if sys.byteorder == 'little':
+                swap_types = ('<', '=')
+            else:
+                swap_types = ('<',)
+            # deal with unsigned integer 16, 32 and 64 data
+            if _is_pseudo_unsigned(self.data.dtype):
+                # Convert the unsigned array to signed
+                output = np.array(
+                    self.data - _unsigned_zero(self.data.dtype),
+                    dtype='>i{}'.format(self.data.dtype.itemsize))
+                should_swap = False
+            else:
+                output = self.data
+                fname = self.data.dtype.names[0]
+                byteorder = self.data.dtype.fields[fname][0].str[0]
+                should_swap = (byteorder in swap_types)
+
+            if not fileobj.simulateonly:
+
+                if should_swap:
+                    if output.flags.writeable:
+                        output.byteswap(True)
+                        try:
+                            fileobj.writearray(output)
+                        finally:
+                            output.byteswap(True)
+                    else:
+                        # For read-only arrays, there is no way around making
+                        # a byteswapped copy of the data.
+                        fileobj.writearray(output.byteswap(False))
+                else:
+                    fileobj.writearray(output)
+
+            size += output.size * output.itemsize
+        return size
+
+    def _verify(self, option='warn'):
+        errs = super()._verify(option=option)
+
+        # Verify locations and values of mandatory keywords.
+2025-05-15 03:44:12,758 - INFO - the data is still a "view" (for now)
+                hcopy = header.copy(strip=True)
+                cards.extend(hcopy.cards)
+
+            self._header = Header(cards)
+
+            if isinstance(data, np.ndarray) and data.dtype.fields is not None:
+                # self._data_type is FITS_rec.
+                if isinstance(data, self._data_type):
+                    self.data = data
+                else:
+                    # Just doing a view on the input data screws up unsigned
+                    # columns, so treat those more carefully.
+2025-05-15 03:44:12,758 - INFO - ================
+2025-05-15 03:44:12,758 - INFO - astropy/io/fits/hdu/compressed.py
+2025-05-15 03:44:12,758 - INFO - csum = first_tile.view(dtype='uint8').sum()
+
+            # Since CFITSIO uses an unsigned long (which may be different on
+            # different platforms) go ahead and truncate the sum to its
+            # unsigned long value and take the result modulo 10000
+            return (ctypes.c_ulong(csum).value % 10000) + 1
+        elif seed == DITHER_SEED_CLOCK:
+            # This isn't exactly the same algorithm as CFITSIO, but that's okay
+            # since the result is meant to be arbitrary. The primary difference
+            # is that CFITSIO incorporates the HDU number into the result in
+            # the hopes of heading off the possibility of the same seed being
+            # generated for two HDUs at the same time.  Here instead we just
+            # add in the HDU object's id
+            return ((sum(int(x) for x in math.modf(time.time())) + id(self)) %
+                    10000) + 1
+        else:
+            return seed
+2025-05-15 03:44:12,758 - INFO - parser.add_option(
+        '-a', '--atol', '--absolute-tolerance', type='float', default=None,
+        dest='atol', metavar='NUMBER',
+        help='The absolute tolerance for comparison of two numbers, '
+             'specifically two floating point numbers.  This applies to data '
+             'in both images and tables, and to floating point keyword values '
+             'in headers (default %default).')
+
+    parser.add_option(
+        '-b', '--no-ignore-blanks', action='store_false',
+        dest='ignore_blanks', default=True,
+        help="Don't ignore trailing blanks (whitespace) in string values.  "
+             "Otherwise trailing blanks both in header keywords/values and in "
+             "table column values) are not treated as significant i.e., "
+             "without this option 'ABCDEF   ' and 'ABCDEF' are considered "
+             "equivalent. ")
+
+    parser.add_option(
+        '--no-ignore-blank-cards', action='store_false',
+        dest='ignore_blank_cards', default=True,
+        help="Don't ignore entirely blank cards in headers.  Normally fitsdiff "
+             "does not consider blank cards when comparing headers, but this "
+             "will ensure that even blank cards match up. ")
+
+    parser.add_option(
+        '--exact', action='store_true',
+        dest='exact_comparisons', default=False,
+        help="Report ALL differences, "
+             "overriding command-line options and FITSDIFF_SETTINGS. ")
+
+    parser.add_option(
+        '-o', '--output-file', metavar='FILE',
+        help='Output results to this file; otherwise results are printed to '
+             'stdout.')
+
+    group = optparse.OptionGroup(parser, 'Header Comparison Options')
+
+    group.add_option(
+        '-k', '--ignore-keywords', action='callback', callback=store_list,
+        nargs=1, type='str', default=[], dest='ignore_keywords',
+        metavar='KEYWORDS',
+        help='Comma-separated list of keywords not to be compared.  Keywords '
+             'may contain wildcard patterns.  To exclude all keywords, use '
+             '"*"; make sure to have double or single quotes around the '
+             'asterisk on the command-line.')
+2025-05-15 03:44:12,758 - INFO - def _convert_record2fits(format):
+    """
+    Convert record format spec to FITS format spec.
+    """
+
+    recformat, kind, dtype = _dtype_to_recformat(format)
+    shape = dtype.shape
+    itemsize = dtype.base.itemsize
+    if dtype.char == 'U':
+        # Unicode dtype--itemsize is 4 times actual ASCII character length,
+        # which what matters for FITS column formats
+        # Use dtype.base--dtype may be a multi-dimensional dtype
+        itemsize = itemsize // 4
+
+    option = str(itemsize)
+
+    ndims = len(shape)
+    repeat = 1
+    if ndims > 0:
+        nel = np.array(shape, dtype='i8').prod()
+        if nel > 1:
+            repeat = nel
+
+    if kind == 'a':
+        # This is a kludge that will place string arrays into a
+        # single field, so at least we won't lose data.  Need to
+        # use a TDIM keyword to fix this, declaring as (slength,
+        # dim1, dim2, ...)  as mwrfits does
+
+        ntot = int(repeat) * int(option)
+
+        output_format = str(ntot) + 'A'
+    elif recformat in NUMPY2FITS:  # record format
+        if repeat != 1:
+            repeat = str(repeat)
+        else:
+            repeat = ''
+        output_format = repeat + NUMPY2FITS[recformat]
+    else:
+        raise ValueError('Illegal format {}.'.format(format))
+
+    return output_format
+2025-05-15 03:44:12,758 - INFO - rtol = tolerance  # when tolerance is provided *always* ignore `rtol`
+                                   # during the transition/deprecation period
+
+        self.ignore_blanks = ignore_blanks
+        self.ignore_blank_cards = ignore_blank_cards
+
+        self.diff_hdu_count = ()
+        self.diff_hdus = []
+
+        try:
+            super().__init__(a, b)
+        finally:
+            if close_a:
+                a.close()
+            if close_b:
+                b.close()
+
+    def _diff(self):
+        if len(self.a) != len(self.b):
+            self.diff_hdu_count = (len(self.a), len(self.b))
+
+        # For now, just compare the extensions one by one in order...might
+        # allow some more sophisticated types of diffing later...
+        # TODO: Somehow or another simplify the passing around of diff
+        # options--this will become important as the number of options grows
+        for idx in range(min(len(self.a), len(self.b))):
+            hdu_diff = HDUDiff.fromdiff(self, self.a[idx], self.b[idx])
+
+            if not hdu_diff.identical:
+                self.diff_hdus.append((idx, hdu_diff))
+
+    def _report(self):
+        wrapper = textwrap.TextWrapper(initial_indent='  ',
+                                       subsequent_indent='  ')
+
+        # print out heading and parameter values
+        filenamea = self.a.filename()
+        if not filenamea:
+            filenamea = '<{} object at {:#x}>'.format(
+                self.a.__class__.__name__, id(self.a))
+
+        filenameb = self.b.filename()
+        if not filenameb:
+            filenameb = '<{} object at {:#x}>'.format(
+                self.b.__class__.__name__, id(self.b))
+
+        self._fileobj.write('\n')
+        self._writeln(' fitsdiff: {}'.format(__version__))
+        self._writeln(' a: {}\n b: {}'.format(filenamea, filenameb))
+        if self.
+2025-05-15 03:44:12,758 - INFO - fix_value : str, int, float, complex, bool, None
+            A valid value for a FITS keyword to to use if the given ``test``
+            fails to replace an invalid value.  In other words, this provides
+            a default value to use as a replacement if the keyword's current
+            value is invalid.  If `None`, there is no replacement value and the
+            keyword is unfixable.
+
+        option : str
+            Output verification option.  Must be one of ``"fix"``,
+            ``"silentfix"``, ``"ignore"``, ``"warn"``, or
+            ``"exception"``.  May also be any combination of ``"fix"`` or
+            ``"silentfix"`` with ``"+ignore"``, ``+warn``, or ``+exception"
+            (e.g. ``"fix+warn"``).  See :ref:`verify` for more info.
+
+        errlist : list
+            A list of validation errors already found in the FITS file; this is
+            used primarily for the validation system to collect errors across
+            multiple HDUs and multiple calls to `req_cards`.
+
+        Notes
+        -----
+        If ``pos=None``, the card can be anywhere in the header.  If the card
+        does not exist, the new card will have the ``fix_value`` as its value
+        when created.  Also check the card's value by using the ``test``
+        argument.
+        """
+2025-05-15 03:44:12,758 - INFO - ignore_keywords:
+            ignore_keywords = ' '.join(sorted(self.ignore_keywords))
+            self._writeln(' Keyword(s) not to be compared:\n{}'
+                          .format(wrapper.fill(ignore_keywords)))
+
+        if self.ignore_comments:
+            ignore_comments = ' '.join(sorted(self.ignore_comments))
+            self._writeln(' Keyword(s) whose comments are not to be compared'
+                          ':\n{}'.format(wrapper.fill(ignore_comments)))
+        if self.ignore_fields:
+            ignore_fields = ' '.join(sorted(self.ignore_fields))
+            self._writeln(' Table column(s) not to be compared:\n{}'
+                          .format(wrapper.fill(ignore_fields)))
+        self._writeln(' Maximum number of different data values to be '
+                      'reported: {}'.format(self.numdiffs))
+        self._writeln(' Relative tolerance: {}, Absolute tolerance: {}'
+                      .format(self.rtol, self.atol))
+
+        if self.diff_hdu_count:
+            self._fileobj.write('\n')
+            self._writeln('Files contain different numbers of HDUs:')
+            self._writeln(' a: {}'.format(self.diff_hdu_count[0]))
+            self._writeln(' b: {}'.format(self.diff_hdu_count[1]))
+
+            if not self.diff_hdus:
+                self._writeln('No differences found between common HDUs.')
+                return
+        elif not self.diff_hdus:
+            self._fileobj.write('\n')
+            self._writeln('No differences found.')
+            return
+
+        for idx, hdu_diff in self.diff_hdus:
+            # print out the extension heading
+            if idx == 0:
+                self._fileobj.write('\n')
+                self._writeln('Primary HDU:')
+            else:
+                self._fileobj.write('\n')
+                self._writeln('Extension HDU {}:'.format(idx))
+            hdu_diff.report(self._fileobj, indent=self._indent + 1)
+2025-05-15 03:44:12,758 - INFO - # for commentary cards, no need to parse further
+        # Likewise for invalid cards
+        if self.keyword.upper() in self._commentary_keywords or self._invalid:
+            return self._image[KEYWORD_LENGTH:].rstrip()
+
+        if self._check_if_rvkc(self._image):
+            return self._value
+
+        if len(self._image) > self.length:
+            values = []
+            for card in self._itersubcards():
+                value = card.value.rstrip().replace("''", "'")
+                if value and value[-1] == '&':
+                    value = value[:-1]
+                values.append(value)
+
+            value = ''.join(values)
+
+            self._valuestring = value
+            return value
+
+        m = self._value_NFSC_RE.match(self._split()[1])
+
+        if m is None:
+            raise VerifyError("Unparsable card ({}), fix it first with "
+                              ".verify('fix').".format(self.keyword))
+
+        if m.group('bool') is not None:
+            value = m.group('bool') == 'T'
+        elif m.group('strg') is not None:
+            value = re.sub("''", "'", m.group('strg'))
+        elif m.group('numr') is not None:
+            #  Check for numbers with leading 0s.
+            numr = self._number_NFSC_RE.match(m.group('numr'))
+            digt = translate(numr.group('digt'), FIX_FP_TABLE2, ' ')
+            if numr.group('sign') is None:
+                sign = ''
+            else:
+                sign = numr.group('sign')
+            value = _str_to_num(sign + digt)
+
+        elif m.group('cplx') is not None:
+            #  Check for numbers with leading 0s.
+2025-05-15 03:44:12,758 - INFO - # Licensed under a 3-clause BSD style license - see PYFITS.rst
+
+
+
+import datetime
+import os
+import sys
+import warnings
+from contextlib import suppress
+from inspect import signature, Parameter
+
+import numpy as np
+
+from .. import conf
+from ..file import _File
+from ..header import Header, _pad_length
+from ..util import (_is_int, _is_pseudo_unsigned, _unsigned_zero,
+                    itersubclasses, decode_ascii, _get_array_mmap, first,
+                    _free_space_check, _extract_number)
+from ..verify import _Verify, _ErrList
+
+from ....utils import lazyproperty
+from ....utils.exceptions import AstropyUserWarning
+from ....utils.decorators import deprecated_renamed_argument
+
+
+class _Delayed:
+    pass
+
+
+DELAYED = _Delayed()
+
+
+BITPIX2DTYPE = {8: 'uint8', 16: 'int16', 32: 'int32', 64: 'int64',
+                -32: 'float32', -64: 'float64'}
+"""Maps FITS BITPIX values to Numpy dtype names."""
+
+DTYPE2BITPIX = {'uint8': 8, 'int16': 16, 'uint16': 16, 'int32': 32,
+                'uint32': 32, 'int64': 64, 'uint64': 64, 'float32': -32,
+                'float64': -64}
+"""
+Maps Numpy dtype names to FITS BITPIX values (this includes unsigned
+integers, with the assumption that the pseudo-unsigned integer convention
+will be used in this case.
+"""
+
+
+class InvalidHDUException(Exception):
+    """
+    A custom exception class used mainly to signal to _BaseHDU.__new__ that
+    an HDU cannot possibly be considered valid, and must be assumed to be
+    corrupted.
+    """
+2025-05-15 03:44:12,758 - INFO - _output_checksum = True
+
+    @property
+    def header(self):
+        return self._header
+
+    @header.setter
+    def header(self, value):
+        self._header = value
+
+    @property
+    def name(self):
+        # Convert the value to a string to be flexible in some pathological
+        # cases (see ticket #96)
+        return str(self._header.get('EXTNAME', self._default_name))
+
+    @name.setter
+    def name(self, value):
+        if not isinstance(value, str):
+            raise TypeError("'name' attribute must be a string")
+        if not conf.extension_name_case_sensitive:
+            value = value.upper()
+        if 'EXTNAME' in self._header:
+            self._header['EXTNAME'] = value
+        else:
+            self._header['EXTNAME'] = (value, 'extension name')
+
+    @property
+    def ver(self):
+        return self._header.get('EXTVER', 1)
+
+    @ver.setter
+    def ver(self, value):
+        if not _is_int(value):
+            raise TypeError("'ver' attribute must be an integer")
+        if 'EXTVER' in self._header:
+            self._header['EXTVER'] = value
+        else:
+            self._header['EXTVER'] = (value, 'extension value')
+
+    @property
+    def level(self):
+        return self._header.get('EXTLEVEL', 1)
+
+    @level.setter
+    def level(self, value):
+        if not _is_int(value):
+            raise TypeError("'level' attribute must be an integer")
+        if 'EXTLEVEL' in self._header:
+            self._header['EXTLEVEL'] = value
+        else:
+            self._header['EXTLEVEL'] = (value, 'extension level')
+
+    @property
+    def is_image(self):
+        return (
+            self.name == 'PRIMARY' or
+            ('XTENSION' in self._header and
+             (self.
+2025-05-15 03:44:12,758 - INFO - .. versionchanged:: 2.0
+               ``rtol`` replaces the deprecated ``tolerance`` argument.
+
+        atol : float, optional
+            The allowed absolute difference. See also ``rtol`` parameter.
+
+            .. versionadded:: 2.0
+
+        ignore_blanks : bool, optional
+            Ignore extra whitespace at the end of string values either in
+            headers or data. Extra leading whitespace is not ignored
+            (default: True).
+
+        ignore_blank_cards : bool, optional
+            Ignore all cards that are blank, i.e. they only contain
+            whitespace (default: True).
+        """
+
+        if isinstance(a, str):
+            try:
+                a = fitsopen(a)
+            except Exception as exc:
+                raise OSError("error opening file a ({}): {}: {}".format(
+                        a, exc.__class__.__name__, exc.args[0]))
+            close_a = True
+        else:
+            close_a = False
+
+        if isinstance(b, str):
+            try:
+                b = fitsopen(b)
+            except Exception as exc:
+                raise OSError("error opening file b ({}): {}: {}".format(
+                        b, exc.__class__.__name__, exc.args[0]))
+            close_b = True
+        else:
+            close_b = False
+
+        # Normalize keywords/fields to ignore to upper case
+        self.ignore_keywords = set(k.upper() for k in ignore_keywords)
+        self.ignore_comments = set(k.upper() for k in ignore_comments)
+        self.ignore_fields = set(k.upper() for k in ignore_fields)
+
+        self.numdiffs = numdiffs
+        self.rtol = rtol
+        self.atol = atol
+
+        if tolerance is not None:  # This should be removed in the next astropy version
+            warnings.warn(
+                '"tolerance" was deprecated in version 2.0 and will be removed in '
+                'a future version. Use argument "rtol" instead.',
+                AstropyDeprecationWarning)
+            self.
+2025-05-15 03:44:12,758 - INFO - if not fileobj and self._file:
+            root = os.path.splitext(self._file.name)[0]
+            fileobj = root + '.txt'
+
+        close_file = False
+
+        if isinstance(fileobj, str):
+            fileobj = open(fileobj, 'w')
+            close_file = True
+
+        linewriter = csv.writer(fileobj, dialect=FITSTableDumpDialect)
+
+        # Process each row of the table and output one row at a time
+        def format_value(val, format):
+            if format[0] == 'S':
+                itemsize = int(format[1:])
+                return '{:{size}}'.format(val, size=itemsize)
+            elif format in np.typecodes['AllInteger']:
+                # output integer
+                return '{:21d}'.format(val)
+            elif format in np.typecodes['Complex']:
+                return '{:21.15g}+{:.15g}j'.format(val.real, val.imag)
+            elif format in np.typecodes['Float']:
+                # output floating point
+                return '{:#21.15g}'.format(val)
+
+        for row in self.data:
+            line = []   # the line for this row of the table
+
+            # Process each column of the row.
+2025-05-15 03:44:12,758 - INFO - def _extract_number(value, default):
+    """
+    Attempts to extract an integer number from the given value. If the
+    extraction fails, the value of the 'default' argument is returned.
+    """
+
+    try:
+        # The _str_to_num method converts the value to string/float
+        # so we need to perform one additional conversion to int on top
+        return int(_str_to_num(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def get_testdata_filepath(filename):
+    """
+    Return a string representing the path to the file requested from the
+    io.fits test data set.
+
+    .. versionadded:: 2.0.3
+
+    Parameters
+    ----------
+    filename : str
+        The filename of the test data file.
+
+    Returns
+    -------
+    filepath : str
+        The path to the requested file.
+    """
+    return data.get_pkg_data_filename(
+        'io/fits/tests/data/{}'.format(filename), 'astropy')
+
+
+def _rstrip_inplace(array):
+    """
+    Performs an in-place rstrip operation on string arrays. This is necessary
+    since the built-in `np.char.rstrip` in Numpy does not perform an in-place
+    calculation.
+    """
+
+    # The following implementation convert the string to unsigned integers of
+    # the right length. Trailing spaces (which are represented as 32) are then
+    # converted to null characters (represented as zeros).
+2025-05-15 03:44:12,758 - INFO - since they're a detail
+        # specific to FITS binary tables
+        if (any(type(r) in (_FormatP, _FormatQ)
+                for r in columns._recformats) and
+                self._data_size is not None and
+                self._data_size > self._theap):
+            # We have a heap; include it in the raw_data
+            raw_data = self._get_raw_data(self._data_size, np.uint8,
+                                          self._data_offset)
+            data = raw_data[:self._theap].view(dtype=columns.dtype,
+                                               type=np.rec.recarray)
+        else:
+            raw_data = self._get_raw_data(self._nrows, columns.dtype,
+                                          self._data_offset)
+            if raw_data is None:
+                # This can happen when a brand new table HDU is being created
+                # and no data has been assigned to the columns, which case just
+                # return an empty array
+                raw_data = np.array([], dtype=columns.dtype)
+
+            data = raw_data.view(np.rec.recarray)
+
+        self._init_tbdata(data)
+        data = data.view(self._data_type)
+        columns._add_listener(data)
+        return data
+
+    def _init_tbdata(self, data):
+        columns = self.columns
+
+        data.dtype = data.dtype.newbyteorder('>')
+
+        # hack to enable pseudo-uint support
+        data._uint = self._uint
+
+        # pass datLoc, for P format
+        data._heapoffset = self._theap
+        data._heapsize = self._header['PCOUNT']
+        tbsize = self._header['NAXIS1'] * self._header['NAXIS2']
+        data._gap = self._theap - tbsize
+
+        # pass the attributes
+        for idx, col in enumerate(columns):
+            # get the data for each column object from the rec.recarray
+            col.array = data.
+2025-05-15 03:44:12,758 - INFO - The 'BLANK' keyword "
+                "is only applicable to integer data, and will be ignored "
+                "in this HDU.")
+            self._blank = None
+
+        for msg in messages:
+            warnings.warn(msg, VerifyWarning)
+
+    def _prewriteto(self, checksum=False, inplace=False):
+        if self._scale_back:
+            self._scale_internal(BITPIX2DTYPE[self._orig_bitpix],
+                                 blank=self._orig_blank)
+
+        self.update_header()
+        if not inplace and self._data_needs_rescale:
+            # Go ahead and load the scaled image data and update the header
+            # with the correct post-rescaling headers
+            _ = self.data
+
+        return super()._prewriteto(checksum, inplace)
+
+    def _writedata_internal(self, fileobj):
+        size = 0
+
+        if self.data is not None:
+            # Based on the system type, determine the byteorders that
+            # would need to be swapped to get to big-endian output
+            if sys.byteorder == 'little':
+                swap_types = ('<', '=')
+            else:
+                swap_types = ('<',)
+            # deal with unsigned integer 16, 32 and 64 data
+            if _is_pseudo_unsigned(self.data.dtype):
+                # Convert the unsigned array to signed
+                output = np.array(
+                    self.data - _unsigned_zero(self.data.dtype),
+                    dtype='>i{}'.format(self.data.dtype.itemsize))
+                should_swap = False
+            else:
+                output = self.data
+                byteorder = output.dtype.str[0]
+                should_swap = (byteorder in swap_types)
+
+            if not fileobj.simulateonly:
+
+                if should_swap:
+                    if output.flags.writeable:
+                        output.byteswap(True)
+                        try:
+                            fileobj.writearray(output)
+                        finally:
+                            output.byteswap(True)
+                    else:
+                        # For read-only arrays, there is no way around making
+                        # a byteswapped copy of the data.
+2025-05-15 03:44:12,758 - INFO - zbitpix = self._image_header['BITPIX']
+
+        if zbitpix < 0 and quantize_level != 0.0:
+            # floating point image has 'COMPRESSED_DATA',
+            # 'UNCOMPRESSED_DATA', 'ZSCALE', and 'ZZERO' columns (unless using
+            # lossless compression, per CFITSIO)
+            ncols = 4
+
+            # CFITSIO 3.28 and up automatically use the GZIP_COMPRESSED_DATA
+            # store floating point data that couldn't be quantized, instead
+            # of the UNCOMPRESSED_DATA column.  There's no way to control
+            # this behavior so the only way to determine which behavior will
+            # be employed is via the CFITSIO version
+
+            if CFITSIO_SUPPORTS_GZIPDATA:
+                ttype2 = 'GZIP_COMPRESSED_DATA'
+                # The required format for the GZIP_COMPRESSED_DATA is actually
+                # missing from the standard docs, but CFITSIO suggests it
+                # should be 1PB, which is logical.
+                tform2 = '1QB' if huge_hdu else '1PB'
+            else:
+                # Q format is not supported for UNCOMPRESSED_DATA columns.
+                ttype2 = 'UNCOMPRESSED_DATA'
+                if zbitpix == 8:
+                    tform2 = '1QB' if huge_hdu else '1PB'
+                elif zbitpix == 16:
+                    tform2 = '1QI' if huge_hdu else '1PI'
+                elif zbitpix == 32:
+                    tform2 = '1QJ' if huge_hdu else '1PJ'
+                elif zbitpix == -32:
+                    tform2 = '1QE' if huge_hdu else '1PE'
+                else:
+                    tform2 = '1QD' if huge_hdu else '1PD'
+
+            # Set up the second column for the table that will hold any
+            # uncompressable data.
+2025-05-15 03:44:12,758 - INFO - '.format(
+                        filename, backup), AstropyUserWarning)
+                try:
+                    shutil.copy(filename, backup)
+                except OSError as exc:
+                    raise OSError('Failed to save backup to destination {}: '
+                                  '{}'.format(filename, exc))
+
+        self.verify(option=output_verify)
+
+        if self._file.mode in ('append', 'ostream'):
+            for hdu in self:
+                if verbose:
+                    try:
+                        extver = str(hdu._header['extver'])
+                    except KeyError:
+                        extver = ''
+
+                # only append HDU's which are "new"
+                if hdu._new:
+                    hdu._prewriteto(checksum=hdu._output_checksum)
+                    with _free_space_check(self):
+                        hdu._writeto(self._file)
+                        if verbose:
+                            print('append HDU', hdu.name, extver)
+                        hdu._new = False
+                    hdu._postwriteto()
+
+        elif self._file.mode == 'update':
+            self._flush_update()
+
+    def update_extend(self):
+        """
+        Make sure that if the primary header needs the keyword ``EXTEND`` that
+        it has it and it is correct.
+        """
+2025-05-15 03:44:12,758 - INFO - ================
+2025-05-15 03:44:12,758 - INFO - astropy/io/fits/connect.py
+2025-05-15 03:44:12,758 - INFO - if isinstance(input, HDUList):
+
+        # Parse all table objects
+        tables = OrderedDict()
+        for ihdu, hdu_item in enumerate(input):
+            if isinstance(hdu_item, (TableHDU, BinTableHDU, GroupsHDU)):
+                tables[ihdu] = hdu_item
+
+        if len(tables) > 1:
+            if hdu is None:
+                warnings.warn("hdu= was not specified but multiple tables"
+                              " are present, reading in first available"
+                              " table (hdu={0})".format(first(tables)),
+                              AstropyUserWarning)
+                hdu = first(tables)
+
+            # hdu might not be an integer, so we first need to convert it
+            # to the correct HDU index
+            hdu = input.index_of(hdu)
+
+            if hdu in tables:
+                table = tables[hdu]
+            else:
+                raise ValueError("No table found in hdu={0}".format(hdu))
+
+        elif len(tables) == 1:
+            table = tables[first(tables)]
+        else:
+            raise ValueError("No table found")
+
+    elif isinstance(input, (TableHDU, BinTableHDU, GroupsHDU)):
+
+        table = input
+
+    else:
+
+        hdulist = fits_open(input, character_as_bytes=character_as_bytes,
+                            memmap=memmap)
+
+        try:
+            return read_table_fits(hdulist, hdu=hdu,
+                                   astropy_native=astropy_native)
+        finally:
+            hdulist.close()
+
+    # Check if table is masked
+    masked = any(col.null is not None for col in table.columns)
+
+    # TODO: in future, it may make more sense to do this column-by-column,
+    # rather than via the structured array.
+
+    # In the loop below we access the data using data[col.name] rather than
+    # col.array to make sure that the data is scaled correctly if needed.
+2025-05-15 03:44:12,758 - INFO - def _cmp_recformats(f1, f2):
+    """
+    Compares two numpy recformats using the ordering given by FORMATORDER.
+    """
+
+    if f1[0] == 'a' and f2[0] == 'a':
+        return cmp(int(f1[1:]), int(f2[1:]))
+    else:
+        f1, f2 = NUMPY2FITS[f1], NUMPY2FITS[f2]
+        return cmp(FORMATORDER.index(f1), FORMATORDER.index(f2))
+2025-05-15 03:44:12,758 - INFO - _file.read(hdrsize))
+            # The header size is unchanged, but the data location may be
+            # different from before depending on if previous HDUs were resized
+            datloc = fileobj.tell()
+
+        if self._data_loaded:
+            if self.data is not None:
+                # Seek through the array's bases for an memmap'd array; we
+                # can't rely on the _File object to give us this info since
+                # the user may have replaced the previous mmap'd array
+                if copy or self._data_replaced:
+                    # Of course, if we're copying the data to a new file
+                    # we don't care about flushing the original mmap;
+                    # instead just read it into the new file
+                    array_mmap = None
+                else:
+                    array_mmap = _get_array_mmap(self.data)
+
+                if array_mmap is not None:
+                    array_mmap.flush()
+                else:
+                    self._file.seek(self._data_offset)
+                    datloc, datsize = self._writedata(fileobj)
+        elif copy:
+            datsize = self._writedata_direct_copy(fileobj)
+
+        self._header_offset = hdrloc
+        self._data_offset = datloc
+        self._data_size = datsize
+        self._data_replaced = False
+
+    def _close(self, closed=True):
+        # If the data was mmap'd, close the underlying mmap (this will
+        # prevent any future access to the .data attribute if there are
+        # not other references to it; if there are other references then
+        # it is up to the user to clean those up
+        if (closed and self._data_loaded and
+                _get_array_mmap(self.data) is not None):
+            del self.data
+2025-05-15 03:44:12,758 - INFO - ================
+2025-05-15 03:44:12,758 - INFO - astropy/io/fits/__init__.py
+2025-05-15 03:44:12,758 - INFO - # Public API compatibility imports
+# These need to come after the global config variables, as some of the
+# submodules use them
+from . import card
+from . import column
+from . import convenience
+from . import hdu
+from .card import *
+from .column import *
+from .convenience import *
+from .diff import *
+from .fitsrec import FITS_record, FITS_rec
+from .hdu import *
+
+from .hdu.groups import GroupData
+from .hdu.hdulist import fitsopen as open
+from .hdu.image import Section
+from .header import Header
+from .verify import VerifyError
+
+
+__all__ = (['Conf', 'conf'] + card.__all__ + column.__all__ +
+           convenience.__all__ + hdu.__all__ +
+           ['FITS_record', 'FITS_rec', 'GroupData', 'open', 'Section',
+            'Header', 'VerifyError', 'conf'])
+2025-05-15 03:44:12,758 - INFO - if 'array' in self.__dict__:
+                            del self.__dict__['array']
+                        return
+
+            if getattr(base, 'base', None) is not None:
+                base = base.base
+            else:
+                break
+
+        self.__dict__['array'] = array
+
+    @array.deleter
+    def array(self):
+        try:
+            del self.__dict__['array']
+        except KeyError:
+            pass
+
+        self._parent_fits_rec = None
+
+    @ColumnAttribute('TTYPE')
+    def name(col, name):
+        if name is None:
+            # Allow None to indicate deleting the name, or to just indicate an
+            # unspecified name (when creating a new Column).
+            return
+
+        # Check that the name meets the recommended standard--other column
+        # names are *allowed*, but will be discouraged
+        if isinstance(name, str) and not TTYPE_RE.match(name):
+            warnings.warn(
+                'It is strongly recommended that column names contain only '
+                'upper and lower-case ASCII letters, digits, or underscores '
+                'for maximum compatibility with other software '
+                '(got {0!r}).'.format(name), VerifyWarning)
+
+        # This ensures that the new name can fit into a single FITS card
+        # without any special extension like CONTINUE cards or the like.
+        if (not isinstance(name, str)
+                or len(str(Card('TTYPE', name))) != CARD_LENGTH):
+            raise AssertionError(
+                'Column name must be a string able to fit in a single '
+                'FITS card--typically this means a maximum of 68 '
+                'characters, though it may be fewer if the string '
+                'contains special characters like quotes.')
+2025-05-15 03:44:12,758 - INFO - ================
+2025-05-15 03:44:12,758 - INFO - astropy/io/fits/fitstime.py
+2025-05-15 03:44:12,758 - INFO - ', AstropyUserWarning)
+            # Assume that the values are in GPS format
+            global_info['scale'] = 'tai'
+            global_info['format'] = 'gps'
+
+        if global_info['scale'] == 'local':
+            warnings.warn(
+                'Global time scale (TIMESYS) has a FITS recognized time scale '
+                'value "LOCAL". However, the standard states that "LOCAL" should be '
+                'tied to one of the existing scales because it is intrinsically '
+                'unreliable and/or ill-defined. Astropy will thus use the default '
+                'global time scale "UTC" instead of "LOCAL".', AstropyUserWarning)
+            # Default scale 'UTC'
+            global_info['scale'] = 'utc'
+            global_info['format'] = None
+
+        else:
+            raise AssertionError(
+                'Global time scale (TIMESYS) should have a FITS recognized '
+                'time scale value (got {!r}). The FITS standard states that '
+                'the use of local time scales should be restricted to alternate '
+                'coordinates.'.format(global_info['TIMESYS']))
+    else:
+        # Scale is already set
+        global_info['format'] = None
+
+    # Check if geocentric global location is specified
+    obs_geo = [global_info[attr] for attr in ('OBSGEO-X', 'OBSGEO-Y', 'OBSGEO-Z')
+               if attr in global_info]
+
+    # Location full specification is (X, Y, Z)
+    if len(obs_geo) == 3:
+        global_info['location'] = EarthLocation.from_geocentric(*obs_geo, unit=u.m)
+    else:
+        # Check if geodetic global location is specified (since geocentric failed)
+
+        # First warn the user if geocentric location is partially specified
+        if obs_geo:
+            warnings.warn(
+                'The geocentric observatory location {} is not completely '
+                'specified (X, Y, Z) and will be ignored.
+2025-05-15 03:44:12,758 - INFO - bscale, bzero : int, optional
+            user specified ``BSCALE`` and ``BZERO`` values.
+        """
+
+        if self.data is None:
+            return
+
+        # Determine the destination (numpy) data type
+        if type is None:
+            type = BITPIX2DTYPE[self._bitpix]
+        _type = getattr(np, type)
+
+        # Determine how to scale the data
+        # bscale and bzero takes priority
+        if (bscale != 1 or bzero != 0):
+            _scale = bscale
+            _zero = bzero
+        else:
+            if option == 'old':
+                _scale = self._orig_bscale
+                _zero = self._orig_bzero
+            elif option == 'minmax':
+                if isinstance(_type, np.floating):
+                    _scale = 1
+                    _zero = 0
+                else:
+                    _min = np.minimum.reduce(self.data.flat)
+                    _max = np.maximum.reduce(self.data.flat)
+
+                    if _type == np.uint8:  # uint8 case
+                        _zero = _min
+                        _scale = (_max - _min) / (2. ** 8 - 1)
+                    else:
+                        _zero = (_max + _min) / 2.
+
+                        # throw away -2^N
+                        _scale = (_max - _min) / (2. ** (8 * _type.bytes) - 2)
+
+        # Do the scaling
+        if _zero != 0:
+            # We have to explicitly cast self._bzero to prevent numpy from
+            # raising an error when doing self.data -= _zero, and we
+            # do this instead of self.data = self.data - _zero to
+            # avoid doubling memory usage.
+            np.subtract(self.data, _zero, out=self.data, casting='unsafe')
+            self.header['BZERO'] = _zero
+        else:
+            # Delete from both headers
+            for header in (self.header, self._header):
+                with suppress(KeyError):
+                    del header['BZERO']
+
+        if _scale != 1:
+            self.data /= _scale
+            self.header['BSCALE'] = _scale
+        else:
+            for header in (self.header, self.
+2025-05-15 03:44:12,758 - INFO - character_as_bytes : bool, optional
+        If `True`, string columns are stored as Numpy byte arrays (dtype ``S``)
+        and are converted on-the-fly to unicode strings when accessing
+        individual elements. If you need to use Numpy unicode arrays (dtype
+        ``U``) internally, you should set this to `False`, but note that this
+        will use more memory. If set to `False`, string columns will not be
+        memory-mapped even if ``memmap`` is `True`.
+    """
+2025-05-15 03:44:12,758 - INFO - ``EXTNAME`` values are
+        not case sensitive:
+
+            printdiff('inA.fits', 'inB.fits', 'sci')
+            printdiff('inA.fits', 'inB.fits', extname='sci')  # equivalent
+
+        By combination of ``EXTNAME`` and ``EXTVER`` as separate
+        arguments or as a tuple::
+
+            printdiff('inA.fits', 'inB.fits', 'sci', 2)    # EXTNAME='SCI'
+                                                           # & EXTVER=2
+            printdiff('inA.fits', 'inB.fits', extname='sci', extver=2)
+                                                           # equivalent
+            printdiff('inA.fits', 'inB.fits', ('sci', 2))  # equivalent
+
+        Ambiguous or conflicting specifications will raise an exception::
+
+            printdiff('inA.fits', 'inB.fits',
+                      ext=('sci', 1), extname='err', extver=2)
+
+    kwargs
+        Any additional keyword arguments to be passed to
+        `~astropy.io.fits.FITSDiff`.
+
+    Notes
+    -----
+    The primary use for the `printdiff` function is to allow quick print out
+    of a FITS difference report and will write to ``sys.stdout``.
+    To save the diff report to a file please use `~astropy.io.fits.FITSDiff`
+    directly.
+    """
+2025-05-15 03:44:12,758 - INFO - errs = errlist
+        fix = None
+
+        try:
+            index = self._header.index(keyword)
+        except ValueError:
+            index = None
+
+        fixable = fix_value is not None
+
+        insert_pos = len(self._header) + 1
+
+        # If pos is an int, insert at the given position (and convert it to a
+        # lambda)
+        if _is_int(pos):
+            insert_pos = pos
+            pos = lambda x: x == insert_pos
+
+        # if the card does not exist
+        if index is None:
+            err_text = "'{}' card does not exist.".format(keyword)
+            fix_text = "Fixed by inserting a new '{}' card.".format(keyword)
+            if fixable:
+                # use repr to accommodate both string and non-string types
+                # Boolean is also OK in this constructor
+                card = (keyword, fix_value)
+
+                def fix(self=self, insert_pos=insert_pos, card=card):
+                    self._header.insert(insert_pos, card)
+
+            errs.append(self.run_option(option, err_text=err_text,
+                        fix_text=fix_text, fix=fix, fixable=fixable))
+        else:
+            # if the supposed location is specified
+            if pos is not None:
+                if not pos(index):
+                    err_text = ("'{}' card at the wrong place "
+                                "(card {}).".format(keyword, index))
+                    fix_text = ("Fixed by moving it to the right place "
+                                "(card {}).".format(insert_pos))
+
+                    def fix(self=self, index=index, insert_pos=insert_pos):
+                        card = self._header.cards[index]
+                        del self._header[index]
+                        self._header.insert(insert_pos, card)
+
+                    errs.append(self.run_option(option, err_text=err_text,
+                                fix_text=fix_text, fix=fix))
+
+            # if value checking is specified
+            if test:
+                val = self._header[keyword]
+                if not test(val):
+                    err_text = ("'{}' card has invalid value '{}'.
+2025-05-15 03:44:12,758 - INFO - data is None or self.b.data is None:
+            # TODO: Perhaps have some means of marking this case
+            pass
+        elif self.a.is_image and self.b.is_image:
+            self.diff_data = ImageDataDiff.fromdiff(self, self.a.data,
+                                                    self.b.data)
+        elif (isinstance(self.a, _TableLikeHDU) and
+              isinstance(self.b, _TableLikeHDU)):
+            # TODO: Replace this if/when _BaseHDU grows a .is_table property
+            self.diff_data = TableDataDiff.fromdiff(self, self.a.data,
+                                                    self.b.data)
+        elif not self.diff_extension_types:
+            # Don't diff the data for unequal extension types that are not
+            # recognized image or table types
+            self.diff_data = RawDataDiff.fromdiff(self, self.a.data,
+                                                  self.b.data)
+
+    def _report(self):
+        if self.identical:
+            self._writeln(" No differences found.")
+2025-05-15 03:44:12,758 - INFO - @ColumnAttribute('TCTYP')
+    def coord_type(col, coord_type):
+        if coord_type is None:
+            return
+
+        if (not isinstance(coord_type, str)
+                or len(coord_type) > 8):
+            raise AssertionError(
+                'Coordinate/axis type must be a string of atmost 8 '
+                'characters.')
+
+    @ColumnAttribute('TCUNI')
+    def coord_unit(col, coord_unit):
+        if (coord_unit is not None
+                and not isinstance(coord_unit, str)):
+            raise AssertionError(
+                'Coordinate/axis unit must be a string.')
+
+    @ColumnAttribute('TCRPX')
+    def coord_ref_point(col, coord_ref_point):
+        if (coord_ref_point is not None
+                and not isinstance(coord_ref_point, numbers.Real)):
+            raise AssertionError(
+                'Pixel coordinate of the reference point must be '
+                'real floating type.')
+
+    @ColumnAttribute('TCRVL')
+    def coord_ref_value(col, coord_ref_value):
+        if (coord_ref_value is not None
+                and not isinstance(coord_ref_value, numbers.Real)):
+            raise AssertionError(
+                'Coordinate value at reference point must be real '
+                'floating type.')
+
+    @ColumnAttribute('TCDLT')
+    def coord_inc(col, coord_inc):
+        if (coord_inc is not None
+                and not isinstance(coord_inc, numbers.Real)):
+            raise AssertionError(
+                'Coordinate increment must be real floating type.')
+
+    @ColumnAttribute('TRPOS')
+    def time_ref_pos(col, time_ref_pos):
+        if (time_ref_pos is not None
+                and not isinstance(time_ref_pos, str)):
+            raise AssertionError(
+                'Time reference position must be a string.')
+2025-05-15 03:44:12,758 - INFO - io_registry.register_reader('fits', Table, read_table_fits)
+io_registry.register_writer('fits', Table, write_table_fits)
+io_registry.register_identifier('fits', Table, is_fits)
+2025-05-15 03:44:12,758 - INFO - Parameters
+    ----------
+    array
+        input object array
+
+    descr_output
+        output "descriptor" array of data type int32 (for P format arrays) or
+        int64 (for Q format arrays)--must be nrows long in its first dimension
+
+    format
+        the _FormatP object representing the format of the variable array
+
+    nrows : int, optional
+        number of rows to create in the column; defaults to the number of rows
+        in the input array
+    """
+
+    # TODO: A great deal of this is redundant with FITS_rec._convert_p; see if
+    # we can merge the two somehow.
+
+    _offset = 0
+
+    if not nrows:
+        nrows = len(array)
+
+    data_output = _VLF([None] * nrows, dtype=format.dtype)
+
+    if format.dtype == 'a':
+        _nbytes = 1
+    else:
+        _nbytes = np.array([], dtype=format.dtype).itemsize
+
+    for idx in range(nrows):
+        if idx < len(array):
+            rowval = array[idx]
+        else:
+            if format.dtype == 'a':
+                rowval = ' ' * data_output.max
+            else:
+                rowval = [0] * data_output.max
+        if format.dtype == 'a':
+            data_output[idx] = chararray.array(encode_ascii(rowval),
+                                               itemsize=1)
+        else:
+            data_output[idx] = np.array(rowval, dtype=format.dtype)
+
+        descr_output[idx, 0] = len(data_output[idx])
+        descr_output[idx, 1] = _offset
+        _offset += len(data_output[idx]) * _nbytes
+
+    return data_output
+2025-05-15 03:44:12,758 - INFO - format, recformat = cls._guess_format(format, start, dim)
+        elif not ascii and not isinstance(format, _BaseColumnFormat):
+            format, recformat = cls._convert_format(format, _ColumnFormat)
+        elif ascii and not isinstance(format, _AsciiColumnFormat):
+            format, recformat = cls._convert_format(format,
+                                                    _AsciiColumnFormat)
+        else:
+            # The format is already acceptable and unambiguous
+            recformat = format.recformat
+
+        return format, recformat
+
+    @classmethod
+    def _guess_format(cls, format, start, dim):
+        if start and dim:
+            # This is impossible; this can't be a valid FITS column
+            raise ValueError(
+                'Columns cannot have both a start (TCOLn) and dim '
+                '(TDIMn) option, since the former is only applies to '
+                'ASCII tables, and the latter is only valid for binary '
+                'tables.')
+        elif start:
+            # Only ASCII table columns can have a 'start' option
+            guess_format = _AsciiColumnFormat
+        elif dim:
+            # Only binary tables can have a dim option
+            guess_format = _ColumnFormat
+        else:
+            # If the format is *technically* a valid binary column format
+            # (i.e. it has a valid format code followed by arbitrary
+            # "optional" codes), but it is also strictly a valid ASCII
+            # table format, then assume an ASCII table column was being
+            # requested (the more likely case, after all).
+            with suppress(VerifyError):
+                format = _AsciiColumnFormat(format, strict=True)
+
+            # A safe guess which reflects the existing behavior of previous
+            # Astropy versions
+            guess_format = _ColumnFormat
+
+        try:
+            format,

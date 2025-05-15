@@ -1,0 +1,63 @@
+2025-05-15 03:33:38,477 - INFO - Processing bug django__django-11001
+2025-05-15 03:33:38,479 - INFO - ================ localize django__django-11001 ================
+2025-05-15 03:35:01,637 - INFO - prompting with message:
+Please look through the following GitHub problem description and Repository structure and provide a list of folders that are irrelevant to fixing the problem.
+Note that irrelevant folders are those that do not need to be modified and are safe to ignored when trying to solve this problem.
+
+### GitHub Problem Description ###
+Incorrect removal of order_by clause created as multiline RawSQL
+Description
+	
+Hi.
+The SQLCompiler is ripping off one of my "order by" clause, because he "thinks" the clause was already "seen" (in SQLCompiler.get_order_by()). I'm using expressions written as multiline RawSQLs, which are similar but not the same. 
+The bug is located in SQLCompiler.get_order_by(), somewhere around line computing part of SQL query without ordering:
+without_ordering = self.ordering_parts.search(sql).group(1)
+The sql variable contains multiline sql. As a result, the self.ordering_parts regular expression is returning just a line containing ASC or DESC words. This line is added to seen set, and because my raw queries have identical last lines, only the first clasue is returing from SQLCompiler.get_order_by().
+As a quick/temporal fix I can suggest making sql variable clean of newline characters, like this:
+sql_oneline = ' '.join(sql.split('\n'))
+without_ordering = self.ordering_parts.search(sql_oneline).group(1)
+Note: beware of unicode (Py2.x u'') and EOL dragons (\r).
+Example of my query:
+	return MyModel.objects.all().order_by(
+		RawSQL('''
+			case when status in ('accepted', 'verification')
+				 then 2 else 1 end''', []).desc(),
+		RawSQL('''
+			case when status in ('accepted', 'verification')
+				 then (accepted_datetime, preferred_datetime)
+				 else null end''', []).asc(),
+		RawSQL('''
+			case when status not in ('accepted', 'verification')
+				 then (accepted_datetime, preferred_datetime, created_at)
+				 else null end''', []).desc())
+The ordering_parts.search is returing accordingly:
+'				 then 2 else 1 end)'
+'				 else null end'
+'				 else null end'
+Second RawSQL with a				 else null end part is removed from query.
+The fun thing is that the issue can be solved by workaround by adding a space or any other char to the last line. 
+So in case of RawSQL I can just say, that current implementation of avoiding duplicates in order by clause works only for special/rare cases (or does not work in all cases). 
+The bug filed here is about wrong identification of duplicates (because it compares only last line of SQL passed to order by clause).
+Hope my notes will help you fixing the issue. Sorry for my english.
+
+
+###
+
+### Repository Structure ###
+
+
+###
+
+Please only provide the full path.
+Remember that any subfolders will be considered as irrelevant if you provide the parent folder.
+Please ensure that the provided irrelevant folders do not include any important files needed to fix the problem
+The returned folders should be separated by new lines and wrapped with ```
+For example:
+```
+folder1/
+folder2/folder3/
+folder4/folder5/
+```
+2025-05-15 03:35:01,659 - INFO - ================================================================================
+2025-05-15 03:35:01,662 - INFO - Initializing a decoder model: gpt-4o-2024-05-13 ...
+2025-05-15 03:35:01,700 - INFO - Creating API request

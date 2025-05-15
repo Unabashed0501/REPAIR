@@ -1,0 +1,828 @@
+2025-05-15 03:49:25,847 - INFO - Processing bug astropy__astropy-14995
+2025-05-15 03:49:58,419 - INFO - ================ localize astropy__astropy-14995 ================
+2025-05-15 03:49:58,805 - INFO - prompting with message:
+2025-05-15 03:49:58,806 - INFO - 
+
+Please look through the following GitHub Problem Description and the Skeleton of Relevant Files.
+Identify all locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related global variables, functions, and classes.
+For each location you provide, either give the name of the class, the name of a method in a class, the name of a function, or the name of a global variable.
+
+### GitHub Problem Description ###
+In v5.3, NDDataRef mask propagation fails when one of the operand does not have a mask
+### Description
+
+This applies to v5.3. 
+
+It looks like when one of the operand does not have a mask, the mask propagation when doing arithmetic, in particular with `handle_mask=np.bitwise_or` fails.  This is not a problem in v5.2.
+
+I don't know enough about how all that works, but it seems from the error that the operand without a mask is set as a mask of None's and then the bitwise_or tries to operate on an integer and a None and fails.
+
+### Expected behavior
+
+When one of the operand does not have mask, the mask that exists should just be copied over to the output.  Or whatever was done in that situation in v5.2 where there's no problem.
+
+### How to Reproduce
+
+This is with v5.3.   With v5.2, there are no errors.
+
+```
+>>> import numpy as np
+>>> from astropy.nddata import NDDataRef
+
+>>> array = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])
+>>> mask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])
+
+>>> nref_nomask = NDDataRef(array)
+>>> nref_mask = NDDataRef(array, mask=mask)
+
+# multiply no mask by constant (no mask * no mask)
+>>> nref_nomask.multiply(1., handle_mask=np.bitwise_or).mask   # returns nothing, no mask,  OK
+
+# multiply no mask by itself (no mask * no mask)
+>>> nref_nomask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask # return nothing, no mask, OK
+
+# multiply mask by constant (mask * no mask)
+>>> nref_mask.multiply(1., handle_mask=np.bitwise_or).mask
+...
+TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'
+
+# multiply mask by itself (mask * mask)
+>>> nref_mask.multiply(nref_mask, handle_mask=np.bitwise_or).mask
+array([[ 0,  1, 64],
+       [ 8,  0,  1],
+       [ 2,  1,  0]])
+
+# multiply mask by no mask (mask * no mask)
+>>> nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask
+...
+TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'
+```
+
+
+### Versions
+
+>>> import sys; print("Python", sys.version)
+Python 3.10.11 | packaged by conda-forge | (main, May 10 2023, 19:07:22) [Clang 14.0.6 ]
+>>> import astropy; print("astropy", astropy.__version__)
+astropy 5.3
+>>> import numpy; print("Numpy", numpy.__version__)
+Numpy 1.24.3
+>>> import erfa; print("pyerfa", erfa.__version__)
+pyerfa 2.0.0.3
+>>> import scipy; print("Scipy", scipy.__version__)
+Scipy 1.10.1
+>>> import matplotlib; print("Matplotlib", matplotlib.__version__)
+Matplotlib 3.7.1
+
+
+
+### Skeleton of Relevant Files ###
+
+### File: astropy/nddata/nddata.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+# This module implements the base NDData class.
+
+
+
+__all__ = ["NDData"]
+
+_meta_doc = """`dict`-like : Additional meta information about the dataset."""
+
+
+class NDData(NDDataBase):
+
+    # Instead of a custom property use the MetaData descriptor also used for
+    # Tables. It will check if the meta is dict-like or raise an exception.
+    meta = MetaData(doc=_meta_doc, copy=False)
+
+    def __init__(
+        self,
+        data,
+        uncertainty=None,
+        mask=None,
+        wcs=None,
+        meta=None,
+        unit=None,
+        copy=False,
+        psf=None,
+    ):
+...
+
+    def __str__(self):
+...
+
+    def __repr__(self):
+...
+
+    @property
+    def data(self):
+...
+
+    @property
+    def mask(self):
+...
+
+    @mask.setter
+    def mask(self, value):
+...
+
+    @property
+    def unit(self):
+...
+
+    @property
+    def wcs(self):
+...
+
+    @wcs.setter
+    def wcs(self, wcs):
+...
+
+    @property
+    def psf(self):
+...
+
+    @psf.setter
+    def psf(self, value):
+...
+
+    @property
+    def uncertainty(self):
+...
+
+    @uncertainty.setter
+    def uncertainty(self, value):
+...
+
+```
+
+### File: astropy/nddata/mixins/ndarithmetic.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+# This module implements the Arithmetic mixin to the NDData class.
+
+
+__all__ = ["NDArithmeticMixin"]
+
+# Global so it doesn't pollute the class dict unnecessarily:
+
+# Docstring templates for add, subtract, multiply, divide methods.
+_arit_doc = """
+    Performs {name} by evaluating ``self`` {op} ``operand``.
+
+    Parameters
+    ----------
+    operand, operand2 : `NDData`-like instance
+        If ``operand2`` is ``None`` or not given it will perform the operation
+        ``self`` {op} ``operand``.
+        If ``operand2`` is given it will perform ``operand`` {op} ``operand2``.
+        If the method was called on a class rather than on the instance
+...
+    -----
+    If a ``callable`` is used for ``mask``, ``wcs`` or ``meta`` the
+    callable must accept the corresponding attributes as first two
+    parameters. If the callable also needs additional parameters these can be
+    defined as ``kwargs`` and must start with ``"wcs_"`` (for wcs callable) or
+    ``"meta_"`` (for meta callable). This startstring is removed before the
+    callable is called.
+
+    ``"first_found"`` can also be abbreviated with ``"ff"``.
+    """
+
+
+class NDArithmeticMixin:
+
+    def _arithmetic(
+        self,
+        operation,
+        operand,
+        propagate_uncertainties=True,
+        handle_mask=np.logical_or,
+        handle_meta=None,
+        uncertainty_correlation=0,
+        compare_wcs="first_found",
+        operation_ignores_mask=False,
+        axis=None,
+        **kwds,
+    ):
+...
+
+    def _arithmetic_data(self, operation, operand, **kwds):
+...
+
+    def _arithmetic_uncertainty(self, operation, operand, result, correlation, **kwds):
+...
+
+    def _arithmetic_mask(self, operation, operand, handle_mask, axis=None, **kwds):
+...
+
+    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):
+...
+
+    def _arithmetic_meta(self, operation, operand, handle_meta, **kwds):
+...
+
+    @sharedmethod
+    @format_doc(_arit_doc, name="addition", op="+")
+    def add(self, operand, operand2=None, **kwargs):
+...
+
+    @sharedmethod
+    @format_doc(_arit_doc, name="subtraction", op="-")
+    def subtract(self, operand, operand2=None, **kwargs):
+...
+
+    @sharedmethod
+    @format_doc(_arit_doc, name="multiplication", op="*")
+    def multiply(self, operand, operand2=None, **kwargs):
+...
+
+    @sharedmethod
+    @format_doc(_arit_doc, name="division", op="/")
+    def divide(self, operand, operand2=None, **kwargs):
+...
+
+    @sharedmethod
+    def sum(self, **kwargs):
+...
+
+    @sharedmethod
+    def mean(self, **kwargs):
+...
+
+    @sharedmethod
+    def min(self, **kwargs):
+...
+
+    @sharedmethod
+    def max(self, **kwargs):
+...
+
+    @sharedmethod
+    def _prepare_then_do_arithmetic(
+        self_or_cls, operation, operand=None, operand2=None, **kwargs
+    ):
+...
+
+```
+
+### File: astropy/nddata/utils.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+
+__all__ = [
+    "extract_array",
+    "add_array",
+    "subpixel_indices",
+    "overlap_slices",
+    "NoOverlapError",
+    "PartialOverlapError",
+    "Cutout2D",
+]
+
+
+class NoOverlapError(ValueError):
+
+    pass
+
+
+class PartialOverlapError(ValueError):
+
+    pass
+
+
+def overlap_slices(large_array_shape, small_array_shape, position, mode="partial"):
+...
+
+
+def extract_array(
+    array_large,
+    shape,
+    position,
+    mode="partial",
+    fill_value=np.nan,
+    return_position=False,
+):
+...
+
+
+def add_array(array_large, array_small, position):
+...
+
+
+def subpixel_indices(position, subsampling):
+...
+
+
+class Cutout2D:
+
+    def __init__(
+        self, data, position, size, wcs=None, mode="trim", fill_value=np.nan, copy=False
+    ):
+...
+
+    def to_original_position(self, cutout_position):
+...
+
+    def to_cutout_position(self, original_position):
+...
+
+    def plot_on_original(self, ax=None, fill=False, **kwargs):
+...
+
+    @staticmethod
+    def _calc_center(slices):
+...
+
+    @staticmethod
+    def _calc_bbox(slices):
+...
+
+    @lazyproperty
+    def origin_original(self):
+...
+
+    @lazyproperty
+    def origin_cutout(self):
+...
+
+    @staticmethod
+    def _round(a):
+...
+
+    @lazyproperty
+    def position_original(self):
+...
+
+    @lazyproperty
+    def position_cutout(self):
+...
+
+    @lazyproperty
+    def center_original(self):
+...
+
+    @lazyproperty
+    def center_cutout(self):
+...
+
+    @lazyproperty
+    def bbox_original(self):
+...
+
+    @lazyproperty
+    def bbox_cutout(self):
+...
+
+```
+
+
+###
+
+Please provide the complete set of locations as either a class name, a function name, or a variable name.
+Note that if you include a class, you do not need to list its specific methods.
+You can include either the entire class or don't include the class name and instead include specific methods in the class.
+### Examples:
+```
+full_path1/file1.py
+function: my_function_1
+class: MyClass1
+function: MyClass2.my_method
+
+full_path2/file2.py
+variable: my_var
+function: MyClass3.my_method
+
+full_path3/file3.py
+function: my_function_2
+function: my_function_3
+function: MyClass4.my_method_1
+class: MyClass5
+```
+
+Return just the locations wrapped with ```.
+
+2025-05-15 03:49:58,813 - INFO - prompting with message:
+
+Please look through the following GitHub Problem Description and the Skeleton of Relevant Files.
+Identify all locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related global variables, functions, and classes.
+For each location you provide, either give the name of the class, the name of a method in a class, the name of a function, or the name of a global variable.
+
+### GitHub Problem Description ###
+In v5.3, NDDataRef mask propagation fails when one of the operand does not have a mask
+### Description
+
+This applies to v5.3. 
+
+It looks like when one of the operand does not have a mask, the mask propagation when doing arithmetic, in particular with `handle_mask=np.bitwise_or` fails.  This is not a problem in v5.2.
+
+I don't know enough about how all that works, but it seems from the error that the operand without a mask is set as a mask of None's and then the bitwise_or tries to operate on an integer and a None and fails.
+
+### Expected behavior
+
+When one of the operand does not have mask, the mask that exists should just be copied over to the output.  Or whatever was done in that situation in v5.2 where there's no problem.
+
+### How to Reproduce
+
+This is with v5.3.   With v5.2, there are no errors.
+
+```
+>>> import numpy as np
+>>> from astropy.nddata import NDDataRef
+
+>>> array = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])
+>>> mask = np.array([[0, 1, 64], [8, 0, 1], [2, 1, 0]])
+
+>>> nref_nomask = NDDataRef(array)
+>>> nref_mask = NDDataRef(array, mask=mask)
+
+# multiply no mask by constant (no mask * no mask)
+>>> nref_nomask.multiply(1., handle_mask=np.bitwise_or).mask   # returns nothing, no mask,  OK
+
+# multiply no mask by itself (no mask * no mask)
+>>> nref_nomask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask # return nothing, no mask, OK
+
+# multiply mask by constant (mask * no mask)
+>>> nref_mask.multiply(1., handle_mask=np.bitwise_or).mask
+...
+TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'
+
+# multiply mask by itself (mask * mask)
+>>> nref_mask.multiply(nref_mask, handle_mask=np.bitwise_or).mask
+array([[ 0,  1, 64],
+       [ 8,  0,  1],
+       [ 2,  1,  0]])
+
+# multiply mask by no mask (mask * no mask)
+>>> nref_mask.multiply(nref_nomask, handle_mask=np.bitwise_or).mask
+...
+TypeError: unsupported operand type(s) for |: 'int' and 'NoneType'
+```
+
+
+### Versions
+
+>>> import sys; print("Python", sys.version)
+Python 3.10.11 | packaged by conda-forge | (main, May 10 2023, 19:07:22) [Clang 14.0.6 ]
+>>> import astropy; print("astropy", astropy.__version__)
+astropy 5.3
+>>> import numpy; print("Numpy", numpy.__version__)
+Numpy 1.24.3
+>>> import erfa; print("pyerfa", erfa.__version__)
+pyerfa 2.0.0.3
+>>> import scipy; print("Scipy", scipy.__version__)
+Scipy 1.10.1
+>>> import matplotlib; print("Matplotlib", matplotlib.__version__)
+Matplotlib 3.7.1
+
+
+
+### Skeleton of Relevant Files ###
+
+### File: astropy/nddata/nddata.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+# This module implements the base NDData class.
+
+
+
+__all__ = ["NDData"]
+
+_meta_doc = """`dict`-like : Additional meta information about the dataset."""
+
+
+class NDData(NDDataBase):
+
+    # Instead of a custom property use the MetaData descriptor also used for
+    # Tables. It will check if the meta is dict-like or raise an exception.
+    meta = MetaData(doc=_meta_doc, copy=False)
+
+    def __init__(
+        self,
+        data,
+        uncertainty=None,
+        mask=None,
+        wcs=None,
+        meta=None,
+        unit=None,
+        copy=False,
+        psf=None,
+    ):
+...
+
+    def __str__(self):
+...
+
+    def __repr__(self):
+...
+
+    @property
+    def data(self):
+...
+
+    @property
+    def mask(self):
+...
+
+    @mask.setter
+    def mask(self, value):
+...
+
+    @property
+    def unit(self):
+...
+
+    @property
+    def wcs(self):
+...
+
+    @wcs.setter
+    def wcs(self, wcs):
+...
+
+    @property
+    def psf(self):
+...
+
+    @psf.setter
+    def psf(self, value):
+...
+
+    @property
+    def uncertainty(self):
+...
+
+    @uncertainty.setter
+    def uncertainty(self, value):
+...
+
+```
+
+### File: astropy/nddata/mixins/ndarithmetic.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+# This module implements the Arithmetic mixin to the NDData class.
+
+
+__all__ = ["NDArithmeticMixin"]
+
+# Global so it doesn't pollute the class dict unnecessarily:
+
+# Docstring templates for add, subtract, multiply, divide methods.
+_arit_doc = """
+    Performs {name} by evaluating ``self`` {op} ``operand``.
+
+    Parameters
+    ----------
+    operand, operand2 : `NDData`-like instance
+        If ``operand2`` is ``None`` or not given it will perform the operation
+        ``self`` {op} ``operand``.
+        If ``operand2`` is given it will perform ``operand`` {op} ``operand2``.
+        If the method was called on a class rather than on the instance
+...
+    -----
+    If a ``callable`` is used for ``mask``, ``wcs`` or ``meta`` the
+    callable must accept the corresponding attributes as first two
+    parameters. If the callable also needs additional parameters these can be
+    defined as ``kwargs`` and must start with ``"wcs_"`` (for wcs callable) or
+    ``"meta_"`` (for meta callable). This startstring is removed before the
+    callable is called.
+
+    ``"first_found"`` can also be abbreviated with ``"ff"``.
+    """
+
+
+class NDArithmeticMixin:
+
+    def _arithmetic(
+        self,
+        operation,
+        operand,
+        propagate_uncertainties=True,
+        handle_mask=np.logical_or,
+        handle_meta=None,
+        uncertainty_correlation=0,
+        compare_wcs="first_found",
+        operation_ignores_mask=False,
+        axis=None,
+        **kwds,
+    ):
+...
+
+    def _arithmetic_data(self, operation, operand, **kwds):
+...
+
+    def _arithmetic_uncertainty(self, operation, operand, result, correlation, **kwds):
+...
+
+    def _arithmetic_mask(self, operation, operand, handle_mask, axis=None, **kwds):
+...
+
+    def _arithmetic_wcs(self, operation, operand, compare_wcs, **kwds):
+...
+
+    def _arithmetic_meta(self, operation, operand, handle_meta, **kwds):
+...
+
+    @sharedmethod
+    @format_doc(_arit_doc, name="addition", op="+")
+    def add(self, operand, operand2=None, **kwargs):
+...
+
+    @sharedmethod
+    @format_doc(_arit_doc, name="subtraction", op="-")
+    def subtract(self, operand, operand2=None, **kwargs):
+...
+
+    @sharedmethod
+    @format_doc(_arit_doc, name="multiplication", op="*")
+    def multiply(self, operand, operand2=None, **kwargs):
+...
+
+    @sharedmethod
+    @format_doc(_arit_doc, name="division", op="/")
+    def divide(self, operand, operand2=None, **kwargs):
+...
+
+    @sharedmethod
+    def sum(self, **kwargs):
+...
+
+    @sharedmethod
+    def mean(self, **kwargs):
+...
+
+    @sharedmethod
+    def min(self, **kwargs):
+...
+
+    @sharedmethod
+    def max(self, **kwargs):
+...
+
+    @sharedmethod
+    def _prepare_then_do_arithmetic(
+        self_or_cls, operation, operand=None, operand2=None, **kwargs
+    ):
+...
+
+```
+
+### File: astropy/nddata/utils.py ###
+```python
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
+
+__all__ = [
+    "extract_array",
+    "add_array",
+    "subpixel_indices",
+    "overlap_slices",
+    "NoOverlapError",
+    "PartialOverlapError",
+    "Cutout2D",
+]
+
+
+class NoOverlapError(ValueError):
+
+    pass
+
+
+class PartialOverlapError(ValueError):
+
+    pass
+
+
+def overlap_slices(large_array_shape, small_array_shape, position, mode="partial"):
+...
+
+
+def extract_array(
+    array_large,
+    shape,
+    position,
+    mode="partial",
+    fill_value=np.nan,
+    return_position=False,
+):
+...
+
+
+def add_array(array_large, array_small, position):
+...
+
+
+def subpixel_indices(position, subsampling):
+...
+
+
+class Cutout2D:
+
+    def __init__(
+        self, data, position, size, wcs=None, mode="trim", fill_value=np.nan, copy=False
+    ):
+...
+
+    def to_original_position(self, cutout_position):
+...
+
+    def to_cutout_position(self, original_position):
+...
+
+    def plot_on_original(self, ax=None, fill=False, **kwargs):
+...
+
+    @staticmethod
+    def _calc_center(slices):
+...
+
+    @staticmethod
+    def _calc_bbox(slices):
+...
+
+    @lazyproperty
+    def origin_original(self):
+...
+
+    @lazyproperty
+    def origin_cutout(self):
+...
+
+    @staticmethod
+    def _round(a):
+...
+
+    @lazyproperty
+    def position_original(self):
+...
+
+    @lazyproperty
+    def position_cutout(self):
+...
+
+    @lazyproperty
+    def center_original(self):
+...
+
+    @lazyproperty
+    def center_cutout(self):
+...
+
+    @lazyproperty
+    def bbox_original(self):
+...
+
+    @lazyproperty
+    def bbox_cutout(self):
+...
+
+```
+
+
+###
+
+Please provide the complete set of locations as either a class name, a function name, or a variable name.
+Note that if you include a class, you do not need to list its specific methods.
+You can include either the entire class or don't include the class name and instead include specific methods in the class.
+### Examples:
+```
+full_path1/file1.py
+function: my_function_1
+class: MyClass1
+function: MyClass2.my_method
+
+full_path2/file2.py
+variable: my_var
+function: MyClass3.my_method
+
+full_path3/file3.py
+function: my_function_2
+function: my_function_3
+function: MyClass4.my_method_1
+class: MyClass5
+```
+
+Return just the locations wrapped with ```.
+
+2025-05-15 03:49:58,909 - INFO - ================================================================================
+2025-05-15 03:49:58,917 - INFO - Initializing a decoder model: gpt-4o-2024-05-13 ...
+2025-05-15 03:49:58,964 - INFO - Creating API request
+2025-05-15 03:50:00,454 - INFO - API response ChatCompletion(id='chatcmpl-BXCP1LKNhikOdgzCyDTnJwcQdiOTU', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='```\nastropy/nddata/nddata.py\nclass: NDData\n\nastropy/nddata/mixins/ndarithmetic.py\nclass: NDArithmeticMixin\nfunction: NDArithmeticMixin._arithmetic\nfunction: NDArithmeticMixin._arithmetic_mask\nfunction: NDArithmeticMixin.multiply\n```', refusal=None, role='assistant', annotations=[], audio=None, function_call=None, tool_calls=None))], created=1747252199, model='gpt-4o-2024-05-13', object='chat.completion', service_tier='default', system_fingerprint='fp_a9047283ac', usage=CompletionUsage(completion_tokens=64, prompt_tokens=2444, total_tokens=2508, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=0, audio_tokens=0, reasoning_tokens=0, rejected_prediction_tokens=0), prompt_tokens_details=PromptTokensDetails(audio_tokens=0, cached_tokens=0)))
+2025-05-15 03:50:00,454 - INFO - ==== raw output ====
+2025-05-15 03:50:00,454 - INFO - ```
+astropy/nddata/nddata.py
+class: NDData
+
+astropy/nddata/mixins/ndarithmetic.py
+class: NDArithmeticMixin
+function: NDArithmeticMixin._arithmetic
+function: NDArithmeticMixin._arithmetic_mask
+function: NDArithmeticMixin.multiply
+```
+2025-05-15 03:50:00,454 - INFO - ================================================================================
+2025-05-15 03:50:00,454 - INFO - ==== extracted locs ====
+2025-05-15 03:50:00,454 - INFO - astropy/nddata/nddata.py
+2025-05-15 03:50:00,474 - INFO - astropy/nddata/mixins/ndarithmetic.py
+2025-05-15 03:50:00,500 - INFO - astropy/nddata/utils.py
+2025-05-15 03:50:00,500 - INFO - ================================================================================

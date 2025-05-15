@@ -1,0 +1,325 @@
+2025-05-15 03:43:16,773 - INFO - Processing bug django__django-10914
+2025-05-15 03:44:10,837 - INFO - Total number of considered files: 4
+2025-05-15 03:44:10,886 - INFO - Total number of documents: 4
+2025-05-15 03:44:12,048 - INFO - Retrieving with query:
+Set default FILE_UPLOAD_PERMISSION to 0o644.
+Description
+	
+Hello,
+As far as I can see, the ​File Uploads documentation page does not mention any permission issues.
+What I would like to see is a warning that in absence of explicitly configured FILE_UPLOAD_PERMISSIONS, the permissions for a file uploaded to FileSystemStorage might not be consistent depending on whether a MemoryUploadedFile or a TemporaryUploadedFile was used for temporary storage of the uploaded data (which, with the default FILE_UPLOAD_HANDLERS, in turn depends on the uploaded data size).
+The tempfile.NamedTemporaryFile + os.rename sequence causes the resulting file permissions to be 0o0600 on some systems (I experience it here on CentOS 7.4.1708 and Python 3.6.5). In all probability, the implementation of Python's built-in tempfile module explicitly sets such permissions for temporary files due to security considerations.
+I found mentions of this issue ​on GitHub, but did not manage to find any existing bug report in Django's bug tracker.
+
+2025-05-15 03:44:12,446 - INFO - Embedding Tokens: 0
+2025-05-15 03:44:12,446 - INFO - ================
+2025-05-15 03:44:12,446 - INFO - django/setup.py
+2025-05-15 03:44:12,446 - INFO - if overlay_warning:
+    sys.stderr.write("""
+
+========
+WARNING!
+========
+
+You have just installed Django over top of an existing
+installation, without removing it first. Because of this,
+your install may now include extraneous files from a
+previous version that have since been removed from
+Django. This is known to cause a variety of problems. You
+should manually remove the
+
+%(existing_path)s
+
+directory and re-install Django.
+
+""" % {"existing_path": existing_path})
+2025-05-15 03:44:12,446 - INFO - import os
+import sys
+from distutils.sysconfig import get_python_lib
+
+from setuptools import find_packages, setup
+
+CURRENT_PYTHON = sys.version_info[:2]
+REQUIRED_PYTHON = (3, 6)
+
+# This check and everything above must remain compatible with Python 2.7.
+if CURRENT_PYTHON < REQUIRED_PYTHON:
+    sys.stderr.write("""
+==========================
+Unsupported Python version
+==========================
+
+This version of Django requires Python {}.{}, but you're trying to
+install it on Python {}.{}.
+
+This may be because you are using a version of pip that doesn't
+understand the python_requires classifier. Make sure you
+have pip >= 9.0 and setuptools >= 24.2, then try again:
+
+    $ python -m pip install --upgrade pip setuptools
+    $ python -m pip install django
+
+This will install the latest version of Django which works on your
+version of Python. If you can't upgrade your pip (or Python), request
+an older version of Django:
+
+    $ python -m pip install "django<2"
+""".format(*(REQUIRED_PYTHON + CURRENT_PYTHON)))
+    sys.exit(1)
+
+
+# Warn if we are installing over top of an existing installation. This can
+# cause issues where files that were deleted from a more recent Django are
+# still present in site-packages. See #18115.
+overlay_warning = False
+if "install" in sys.argv:
+    lib_paths = [get_python_lib()]
+    if lib_paths[0].startswith("/usr/lib/"):
+        # We have to try also with an explicit prefix of /usr/local in order to
+        # catch Debian's custom user site-packages directory.
+        lib_paths.append(get_python_lib(prefix="/usr/local"))
+    for lib_path in lib_paths:
+        existing_path = os.path.abspath(os.path.join(lib_path, "django"))
+        if os.path.exists(existing_path):
+            # We note the need for the warning here, but present it after the
+            # command is run, so it's more likely to be seen.
+            overlay_warning = True
+            break
+
+
+EXCLUDE_FROM_PACKAGES = ['django.conf.project_template',
+                         'django.conf.app_template',
+                         'django.bin']
+
+
+# Dynamically calculate the version based on django.VERSION.
+version = __import__('django').get_version()
+2025-05-15 03:44:12,446 - INFO - def read(fname):
+    with open(os.path.join(os.path.dirname(__file__), fname)) as f:
+        return f.read()
+
+
+setup(
+    name='Django',
+    version=version,
+    python_requires='>={}.{}'.format(*REQUIRED_PYTHON),
+    url='https://www.djangoproject.com/',
+    author='Django Software Foundation',
+    author_email='foundation@djangoproject.com',
+    description=('A high-level Python Web framework that encourages '
+                 'rapid development and clean, pragmatic design.'),
+    long_description=read('README.rst'),
+    license='BSD',
+    packages=find_packages(exclude=EXCLUDE_FROM_PACKAGES),
+    include_package_data=True,
+    scripts=['django/bin/django-admin.py'],
+    entry_points={'console_scripts': [
+        'django-admin = django.core.management:execute_from_command_line',
+    ]},
+    install_requires=['pytz', 'sqlparse'],
+    extras_require={
+        "bcrypt": ["bcrypt"],
+        "argon2": ["argon2-cffi >= 16.1.0"],
+    },
+    zip_safe=False,
+    classifiers=[
+        'Development Status :: 2 - Pre-Alpha',
+        'Environment :: Web Environment',
+        'Framework :: Django',
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: BSD License',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3 :: Only',
+        'Topic :: Internet :: WWW/HTTP',
+        'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
+        'Topic :: Internet :: WWW/HTTP :: WSGI',
+        'Topic :: Software Development :: Libraries :: Application Frameworks',
+        'Topic :: Software Development :: Libraries :: Python Modules',
+    ],
+    project_urls={
+        'Documentation': 'https://docs.djangoproject.com/',
+        'Funding': 'https://www.djangoproject.com/fundraising/',
+        'Source': 'https://github.com/django/django',
+        'Tracker': 'https://code.djangoproject.com/',
+    },
+)
+2025-05-15 03:44:12,446 - INFO - ================
+2025-05-15 03:44:12,446 - INFO - django/__init__.py
+2025-05-15 03:44:12,446 - INFO - from django.utils.version import get_version
+
+VERSION = (3, 0, 0, 'alpha', 0)
+
+__version__ = get_version(VERSION)
+
+
+def setup(set_prefix=True):
+    """
+    Configure the settings (this happens as a side effect of accessing the
+    first setting), configure logging and populate the app registry.
+    Set the thread-local urlresolvers script prefix if `set_prefix` is True.
+    """
+    from django.apps import apps
+    from django.conf import settings
+    from django.urls import set_script_prefix
+    from django.utils.log import configure_logging
+
+    configure_logging(settings.LOGGING_CONFIG, settings.LOGGING)
+    if set_prefix:
+        set_script_prefix(
+            '/' if settings.FORCE_SCRIPT_NAME is None else settings.FORCE_SCRIPT_NAME
+        )
+    apps.populate(settings.INSTALLED_APPS)
+2025-05-15 03:44:12,446 - INFO - ================
+2025-05-15 03:44:12,446 - INFO - django/__main__.py
+2025-05-15 03:44:12,446 - INFO - """
+Invokes django-admin when the django module is run as a script.
+
+Example: python -m django check
+"""
+from django.core import management
+
+if __name__ == "__main__":
+    management.execute_from_command_line()
+2025-05-15 03:44:12,446 - INFO - ================
+2025-05-15 03:44:12,446 - INFO - django/shortcuts.py
+2025-05-15 03:44:12,446 - INFO - def get_object_or_404(klass, *args, **kwargs):
+    """
+    Use get() to return an object, or raise a Http404 exception if the object
+    does not exist.
+
+    klass may be a Model, Manager, or QuerySet object. All other passed
+    arguments and keyword arguments are used in the get() query.
+
+    Like with QuerySet.get(), MultipleObjectsReturned is raised if more than
+    one object is found.
+    """
+    queryset = _get_queryset(klass)
+    if not hasattr(queryset, 'get'):
+        klass__name = klass.__name__ if isinstance(klass, type) else klass.__class__.__name__
+        raise ValueError(
+            "First argument to get_object_or_404() must be a Model, Manager, "
+            "or QuerySet, not '%s'." % klass__name
+        )
+    try:
+        return queryset.get(*args, **kwargs)
+    except queryset.model.DoesNotExist:
+        raise Http404('No %s matches the given query.' % queryset.model._meta.object_name)
+
+
+def get_list_or_404(klass, *args, **kwargs):
+    """
+    Use filter() to return a list of objects, or raise a Http404 exception if
+    the list is empty.
+
+    klass may be a Model, Manager, or QuerySet object. All other passed
+    arguments and keyword arguments are used in the filter() query.
+    """
+    queryset = _get_queryset(klass)
+    if not hasattr(queryset, 'filter'):
+        klass__name = klass.__name__ if isinstance(klass, type) else klass.__class__.__name__
+        raise ValueError(
+            "First argument to get_list_or_404() must be a Model, Manager, or "
+            "QuerySet, not '%s'." % klass__name
+        )
+    obj_list = list(queryset.filter(*args, **kwargs))
+    if not obj_list:
+        raise Http404('No %s matches the given query.' % queryset.model._meta.object_name)
+    return obj_list
+2025-05-15 03:44:12,446 - INFO - def resolve_url(to, *args, **kwargs):
+    """
+    Return a URL appropriate for the arguments passed.
+
+    The arguments could be:
+
+        * A model: the model's `get_absolute_url()` function will be called.
+
+        * A view name, possibly with arguments: `urls.reverse()` will be used
+          to reverse-resolve the name.
+
+        * A URL, which will be returned as-is.
+    """
+    # If it's a model, use get_absolute_url()
+    if hasattr(to, 'get_absolute_url'):
+        return to.get_absolute_url()
+
+    if isinstance(to, Promise):
+        # Expand the lazy instance, as it can cause issues when it is passed
+        # further to some Python functions like urlparse.
+        to = str(to)
+
+    if isinstance(to, str):
+        # Handle relative URLs
+        if to.startswith(('./', '../')):
+            return to
+
+    # Next try a reverse URL resolution.
+    try:
+        return reverse(to, args=args, kwargs=kwargs)
+    except NoReverseMatch:
+        # If this is a callable, re-raise.
+        if callable(to):
+            raise
+        # If this doesn't "feel" like a URL, re-raise.
+        if '/' not in to and '.' not in to:
+            raise
+
+    # Finally, fall back and assume it's a URL
+    return to
+2025-05-15 03:44:12,446 - INFO - """
+This module collects helper functions and classes that "span" multiple levels
+of MVC. In other words, these functions/classes introduce controlled coupling
+for convenience's sake.
+"""
+from django.http import (
+    Http404, HttpResponse, HttpResponsePermanentRedirect, HttpResponseRedirect,
+)
+from django.template import loader
+from django.urls import NoReverseMatch, reverse
+from django.utils.functional import Promise
+
+
+def render(request, template_name, context=None, content_type=None, status=None, using=None):
+    """
+    Return a HttpResponse whose content is filled with the result of calling
+    django.template.loader.render_to_string() with the passed arguments.
+    """
+    content = loader.render_to_string(template_name, context, request, using=using)
+    return HttpResponse(content, content_type, status)
+
+
+def redirect(to, *args, permanent=False, **kwargs):
+    """
+    Return an HttpResponseRedirect to the appropriate URL for the arguments
+    passed.
+
+    The arguments could be:
+
+        * A model: the model's `get_absolute_url()` function will be called.
+
+        * A view name, possibly with arguments: `urls.reverse()` will be used
+          to reverse-resolve the name.
+
+        * A URL, which will be used as-is for the redirect location.
+
+    Issues a temporary redirect by default; pass permanent=True to issue a
+    permanent redirect.
+    """
+    redirect_class = HttpResponsePermanentRedirect if permanent else HttpResponseRedirect
+    return redirect_class(resolve_url(to, *args, **kwargs))
+
+
+def _get_queryset(klass):
+    """
+    Return a QuerySet or a Manager.
+    Duck typing in action: any class with a `get()` method (for
+    get_object_or_404) or a `filter()` method (for get_list_or_404) might do
+    the job.
+    """
+    # If it is a model class or anything else with ._default_manager
+    if hasattr(klass, '_default_manager'):
+        return klass._default_manager.all()
+    return klass

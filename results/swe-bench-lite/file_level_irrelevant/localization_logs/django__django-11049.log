@@ -1,0 +1,36 @@
+2025-05-15 03:34:37,667 - INFO - Processing bug django__django-11049
+2025-05-15 03:34:37,667 - INFO - ================ localize django__django-11049 ================
+2025-05-15 03:35:01,643 - INFO - prompting with message:
+Please look through the following GitHub problem description and Repository structure and provide a list of folders that are irrelevant to fixing the problem.
+Note that irrelevant folders are those that do not need to be modified and are safe to ignored when trying to solve this problem.
+
+### GitHub Problem Description ###
+Correct expected format in invalid DurationField error message
+Description
+	
+If you enter a duration "14:00" into a duration field, it translates to "00:14:00" which is 14 minutes.
+The current error message for invalid DurationField says that this should be the format of durations: "[DD] [HH:[MM:]]ss[.uuuuuu]". But according to the actual behaviour, it should be: "[DD] [[HH:]MM:]ss[.uuuuuu]", because seconds are mandatory, minutes are optional, and hours are optional if minutes are provided.
+This seems to be a mistake in all Django versions that support the DurationField.
+Also the duration fields could have a default help_text with the requested format, because the syntax is not self-explanatory.
+
+
+###
+
+### Repository Structure ###
+
+
+###
+
+Please only provide the full path.
+Remember that any subfolders will be considered as irrelevant if you provide the parent folder.
+Please ensure that the provided irrelevant folders do not include any important files needed to fix the problem
+The returned folders should be separated by new lines and wrapped with ```
+For example:
+```
+folder1/
+folder2/folder3/
+folder4/folder5/
+```
+2025-05-15 03:35:01,656 - INFO - ================================================================================
+2025-05-15 03:35:01,659 - INFO - Initializing a decoder model: gpt-4o-2024-05-13 ...
+2025-05-15 03:35:01,700 - INFO - Creating API request
